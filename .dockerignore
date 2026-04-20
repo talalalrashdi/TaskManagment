@@ -1,0 +1,6 @@
+.git
+**/bin
+**/obj
+**/.next
+**/node_modules
+sqlserver-data

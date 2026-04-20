@@ -1,0 +1,40 @@
+# .NET
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.suo
+*.sln.docstates
+.vs/
+.vscode/
+appsettings.Development.json
+*.log
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+build/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+
+# Build artifacts
+*.nuget
+.nuget/
