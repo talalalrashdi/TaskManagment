@@ -51,6 +51,7 @@ public interface IProjectService
     Task RemoveProjectMemberAsync(int projectId, int userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<ExecutiveUpdateDto>> GetProjectUpdatesAsync(int projectId, CancellationToken cancellationToken = default);
     Task<ExecutiveUpdateDto> AddProjectUpdateAsync(int projectId, CreateExecutiveUpdateRequest request, CancellationToken cancellationToken = default);
+    Task DeleteProjectUpdateAsync(int projectId, int updateId, CancellationToken cancellationToken = default);
 }
 
 public interface ITaskService
@@ -617,6 +618,21 @@ public sealed class ProjectService(
         return update.ToDto();
     }
 
+    public async Task DeleteProjectUpdateAsync(int projectId, int updateId, CancellationToken cancellationToken = default)
+    {
+        await EnsureProjectAccessAsync(projectId, true, cancellationToken);
+
+        var deleted = await executiveUpdateRepository.DeleteUpdateAsync(projectId, updateId, cancellationToken);
+        if (!deleted)
+        {
+            throw new AppException("Executive update not found.", StatusCodes.Status404NotFound);
+        }
+
+        await hubContext.Clients.Group(HubGroups.Project(projectId)).SendAsync("project:updateDeleted", updateId, cancellationToken);
+        await WriteAuditAsync("ProjectUpdateDeleted", "ExecutiveUpdate", updateId.ToString(), new { projectId, updateId }, cancellationToken);
+        InvalidateProjectCaches();
+    }
+
     private ProjectQueryParameters ApplyVisibility(ProjectQueryParameters query)
     {
         var userId = currentUserService.UserId;
@@ -690,13 +706,15 @@ public sealed class TaskService(
         await EnsureProjectAccessAsync(projectId, true, cancellationToken);
 
         var createdBy = currentUserService.UserId ?? throw new AppException("Unauthorized.", StatusCodes.Status401Unauthorized);
+        var assignedUserIds = ResolveAssignedUserIds(request.AssignedUserIds, request.AssignedToId);
         var taskId = await taskRepository.CreateTaskAsync(
             new ProjectTaskEntity
             {
                 ProjectId = projectId,
                 Title = request.Title.Trim(),
                 Description = request.Description.Trim(),
-                AssignedToId = request.AssignedToId,
+                AssignedToId = GetPrimaryAssignedUserId(assignedUserIds),
+                AssignedUserIds = assignedUserIds,
                 CreatedById = createdBy,
                 Status = request.Status,
                 Priority = request.Priority,
@@ -728,6 +746,7 @@ public sealed class TaskService(
         }
 
         await EnsureProjectAccessAsync(existing.ProjectId, true, cancellationToken);
+        var assignedUserIds = ResolveAssignedUserIds(request.AssignedUserIds, request.AssignedToId);
         var updated = await taskRepository.UpdateTaskAsync(
             new ProjectTaskEntity
             {
@@ -735,7 +754,8 @@ public sealed class TaskService(
                 ProjectId = existing.ProjectId,
                 Title = request.Title.Trim(),
                 Description = request.Description.Trim(),
-                AssignedToId = request.AssignedToId,
+                AssignedToId = GetPrimaryAssignedUserId(assignedUserIds),
+                AssignedUserIds = assignedUserIds,
                 CreatedById = existing.CreatedById,
                 Status = request.Status,
                 Priority = request.Priority,
@@ -755,7 +775,19 @@ public sealed class TaskService(
         var task = await taskRepository.GetTaskByIdAsync(id, cancellationToken)
             ?? throw new AppException("Task not found.", StatusCodes.Status404NotFound);
 
-        if (existing.AssignedToId != task.AssignedToId)
+        var existingAssigneeIds = existing.Assignees.Select(static assignee => assignee.UserId).ToHashSet();
+        if (existingAssigneeIds.Count == 0 && existing.AssignedToId is int existingAssignedToId)
+        {
+            existingAssigneeIds.Add(existingAssignedToId);
+        }
+
+        var updatedAssigneeIds = task.Assignees.Select(static assignee => assignee.UserId).ToHashSet();
+        if (updatedAssigneeIds.Count == 0 && task.AssignedToId is int updatedAssignedToId)
+        {
+            updatedAssigneeIds.Add(updatedAssignedToId);
+        }
+
+        if (!existingAssigneeIds.SetEquals(updatedAssigneeIds))
         {
             await NotifyAssignmentAsync(existing.ProjectId, task, "task:assigned", cancellationToken);
         }
@@ -827,7 +859,8 @@ public sealed class TaskService(
 
         if (role == SystemRoles.Member)
         {
-            if (task.AssignedToId != userId)
+            var isAssigned = task.AssignedToId == userId || task.Assignees.Any(assignee => assignee.UserId == userId);
+            if (!isAssigned)
             {
                 throw new AppException("Members can only update their own assigned tasks.", StatusCodes.Status403Forbidden);
             }
@@ -848,7 +881,13 @@ public sealed class TaskService(
 
     private async Task NotifyAssignmentAsync(int projectId, ProjectTaskEntity task, string eventName, CancellationToken cancellationToken)
     {
-        if (task.AssignedToId is int assignedUserId)
+        var assignedUserIds = task.Assignees.Select(static assignee => assignee.UserId).ToArray();
+        if (assignedUserIds.Length == 0 && task.AssignedToId is int assignedToId)
+        {
+            assignedUserIds = [assignedToId];
+        }
+
+        foreach (var assignedUserId in assignedUserIds.Distinct())
         {
             await notificationRepository.CreateAsync(
                 new NotificationEntity
@@ -866,6 +905,23 @@ public sealed class TaskService(
         }
 
         await hubContext.Clients.Group(HubGroups.Project(projectId)).SendAsync(eventName, task.ToDto(), cancellationToken);
+    }
+
+    private static IReadOnlyCollection<int> ResolveAssignedUserIds(IReadOnlyCollection<int>? assignedUserIds, int? assignedToId)
+    {
+        var ids = assignedUserIds?.Where(static userId => userId > 0) ?? [];
+        if (assignedToId is > 0)
+        {
+            ids = ids.Append(assignedToId.Value);
+        }
+
+        return ids.Distinct().ToArray();
+    }
+
+    private static int? GetPrimaryAssignedUserId(IReadOnlyCollection<int> assignedUserIds)
+    {
+        var primaryUserId = assignedUserIds.FirstOrDefault();
+        return primaryUserId > 0 ? primaryUserId : null;
     }
 
     private void InvalidateCaches() => memoryCache.Remove(CacheKeys.DashboardStats);
@@ -1233,7 +1289,23 @@ internal static class ServiceMappings
         => new(entity.Id, entity.ProjectId, entity.UserId, entity.RoleInProject, entity.JoinedAt, entity.UserName, entity.UserEmail, entity.UserAvatar);
 
     public static TaskDto ToDto(this ProjectTaskEntity entity)
-        => new(entity.Id, entity.ProjectId, entity.Title, entity.Description, entity.AssignedToId, entity.AssignedToName, entity.CreatedById, entity.CreatedByName, entity.Status, entity.Priority, entity.DueDate, entity.EstimatedHours, entity.ActualHours, entity.OrderIndex, entity.CreatedAt);
+        => new(
+            entity.Id,
+            entity.ProjectId,
+            entity.Title,
+            entity.Description,
+            entity.AssignedToId,
+            entity.AssignedToName,
+            entity.Assignees.Select(static assignee => new TaskAssigneeDto(assignee.UserId, assignee.UserName, assignee.UserEmail, assignee.UserAvatar)).ToArray(),
+            entity.CreatedById,
+            entity.CreatedByName,
+            entity.Status,
+            entity.Priority,
+            entity.DueDate,
+            entity.EstimatedHours,
+            entity.ActualHours,
+            entity.OrderIndex,
+            entity.CreatedAt);
 
     public static ExecutiveUpdateDto ToDto(this ExecutiveUpdateEntity entity)
         => new(entity.Id, entity.ProjectId, entity.Content, entity.UpdateType, entity.CreatedById, entity.CreatedByName, entity.CreatedAt);

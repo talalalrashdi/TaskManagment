@@ -41,6 +41,7 @@ public interface IExecutiveUpdateRepository
     Task<IReadOnlyCollection<ExecutiveUpdateEntity>> GetProjectUpdatesAsync(int projectId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<ExecutiveUpdateEntity>> GetRecentUpdatesAsync(int take = 10, CancellationToken cancellationToken = default);
     Task<int> CreateUpdateAsync(ExecutiveUpdateEntity update, CancellationToken cancellationToken = default);
+    Task<bool> DeleteUpdateAsync(int projectId, int updateId, CancellationToken cancellationToken = default);
 }
 
 public interface ILicenseRepository

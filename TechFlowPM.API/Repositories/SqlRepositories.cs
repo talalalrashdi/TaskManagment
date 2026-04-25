@@ -537,7 +537,9 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             const string assignedSql = """
                 SELECT COUNT(1)
                 FROM dbo.Tasks t
-                WHERE t.project_id = @ProjectId AND t.assigned_to_id = @UserId;
+                LEFT JOIN dbo.TaskAssignees ta ON ta.task_id = t.id
+                WHERE t.project_id = @ProjectId
+                  AND (t.assigned_to_id = @UserId OR ta.user_id = @UserId);
                 """;
 
             return await connection.ExecuteScalarAsync<int>(new CommandDefinition(assignedSql, new { ProjectId = projectId, UserId = userId }, cancellationToken: cancellationToken)) > 0;
@@ -627,10 +629,35 @@ public sealed class TaskRepository(ISqlConnectionFactory connectionFactory) : IT
             LEFT JOIN dbo.Users assigned ON assigned.id = t.assigned_to_id
             WHERE t.project_id = @ProjectId
             ORDER BY t.order_index ASC, t.created_at ASC;
+
+            SELECT
+                ta.task_id AS TaskId,
+                u.id AS UserId,
+                u.name AS UserName,
+                u.email AS UserEmail,
+                u.avatar AS UserAvatar
+            FROM dbo.TaskAssignees ta
+            INNER JOIN dbo.Tasks t ON t.id = ta.task_id
+            INNER JOIN dbo.Users u ON u.id = ta.user_id
+            WHERE t.project_id = @ProjectId
+            ORDER BY u.name ASC;
             """;
 
         using var connection = connectionFactory.CreateConnection();
-        return (await connection.QueryAsync<ProjectTaskEntity>(new CommandDefinition(sql, new { ProjectId = projectId }, cancellationToken: cancellationToken))).AsList();
+        using var multi = await connection.QueryMultipleAsync(new CommandDefinition(sql, new { ProjectId = projectId }, cancellationToken: cancellationToken));
+        var tasks = (await multi.ReadAsync<ProjectTaskEntity>()).AsList();
+        var assignees = (await multi.ReadAsync<TaskAssigneeEntity>()).AsList();
+        var assigneesByTask = assignees.GroupBy(static assignee => assignee.TaskId).ToDictionary(static group => group.Key, static group => (IReadOnlyCollection<TaskAssigneeEntity>)group.ToArray());
+
+        foreach (var task in tasks)
+        {
+            if (assigneesByTask.TryGetValue(task.Id, out var taskAssignees))
+            {
+                task.Assignees = taskAssignees;
+            }
+        }
+
+        return tasks;
     }
 
     public async Task<ProjectTaskEntity?> GetTaskByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -656,10 +683,29 @@ public sealed class TaskRepository(ISqlConnectionFactory connectionFactory) : IT
             INNER JOIN dbo.Users creator ON creator.id = t.created_by_id
             LEFT JOIN dbo.Users assigned ON assigned.id = t.assigned_to_id
             WHERE t.id = @Id;
+
+            SELECT
+                ta.task_id AS TaskId,
+                u.id AS UserId,
+                u.name AS UserName,
+                u.email AS UserEmail,
+                u.avatar AS UserAvatar
+            FROM dbo.TaskAssignees ta
+            INNER JOIN dbo.Users u ON u.id = ta.user_id
+            WHERE ta.task_id = @Id
+            ORDER BY u.name ASC;
             """;
 
         using var connection = connectionFactory.CreateConnection();
-        return await connection.QuerySingleOrDefaultAsync<ProjectTaskEntity>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+        using var multi = await connection.QueryMultipleAsync(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+        var task = await multi.ReadSingleOrDefaultAsync<ProjectTaskEntity>();
+        if (task is null)
+        {
+            return null;
+        }
+
+        task.Assignees = (await multi.ReadAsync<TaskAssigneeEntity>()).AsList();
+        return task;
     }
 
     public async Task<int> CreateTaskAsync(ProjectTaskEntity task, CancellationToken cancellationToken = default)
@@ -678,7 +724,12 @@ public sealed class TaskRepository(ISqlConnectionFactory connectionFactory) : IT
             """;
 
         using var connection = connectionFactory.CreateConnection();
-        return await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, task, cancellationToken: cancellationToken));
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var taskId = await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, task, transaction, cancellationToken: cancellationToken));
+        await ReplaceTaskAssigneesAsync(connection, transaction, taskId, task.AssignedUserIds, cancellationToken);
+        transaction.Commit();
+        return taskId;
     }
 
     public async Task<bool> UpdateTaskAsync(ProjectTaskEntity task, CancellationToken cancellationToken = default)
@@ -699,7 +750,16 @@ public sealed class TaskRepository(ISqlConnectionFactory connectionFactory) : IT
             """;
 
         using var connection = connectionFactory.CreateConnection();
-        return await connection.ExecuteAsync(new CommandDefinition(sql, task, cancellationToken: cancellationToken)) > 0;
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var updated = await connection.ExecuteAsync(new CommandDefinition(sql, task, transaction, cancellationToken: cancellationToken)) > 0;
+        if (updated)
+        {
+            await ReplaceTaskAssigneesAsync(connection, transaction, task.Id, task.AssignedUserIds, cancellationToken);
+        }
+
+        transaction.Commit();
+        return updated;
     }
 
     public async Task<bool> UpdateTaskStatusAsync(int id, string status, CancellationToken cancellationToken = default)
@@ -714,6 +774,31 @@ public sealed class TaskRepository(ISqlConnectionFactory connectionFactory) : IT
         const string sql = "DELETE FROM dbo.Tasks WHERE id = @Id;";
         using var connection = connectionFactory.CreateConnection();
         return await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken)) > 0;
+    }
+
+    private static async Task ReplaceTaskAssigneesAsync(
+        System.Data.IDbConnection connection,
+        System.Data.IDbTransaction transaction,
+        int taskId,
+        IReadOnlyCollection<int> assignedUserIds,
+        CancellationToken cancellationToken)
+    {
+        const string deleteSql = "DELETE FROM dbo.TaskAssignees WHERE task_id = @TaskId;";
+        await connection.ExecuteAsync(new CommandDefinition(deleteSql, new { TaskId = taskId }, transaction, cancellationToken: cancellationToken));
+
+        var userIds = assignedUserIds.Distinct().ToArray();
+        if (userIds.Length == 0)
+        {
+            return;
+        }
+
+        const string insertSql = """
+            INSERT INTO dbo.TaskAssignees (task_id, user_id)
+            VALUES (@TaskId, @UserId);
+            """;
+
+        var rows = userIds.Select(userId => new { TaskId = taskId, UserId = userId });
+        await connection.ExecuteAsync(new CommandDefinition(insertSql, rows, transaction, cancellationToken: cancellationToken));
     }
 }
 
@@ -771,6 +856,15 @@ public sealed class ExecutiveUpdateRepository(ISqlConnectionFactory connectionFa
 
         using var connection = connectionFactory.CreateConnection();
         return await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, update, cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> DeleteUpdateAsync(int projectId, int updateId, CancellationToken cancellationToken = default)
+    {
+        const string sql = "DELETE FROM dbo.ExecutiveUpdates WHERE id = @UpdateId AND project_id = @ProjectId;";
+
+        using var connection = connectionFactory.CreateConnection();
+        var rows = await connection.ExecuteAsync(new CommandDefinition(sql, new { ProjectId = projectId, UpdateId = updateId }, cancellationToken: cancellationToken));
+        return rows > 0;
     }
 }
 

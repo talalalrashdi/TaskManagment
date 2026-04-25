@@ -96,6 +96,12 @@ public sealed record ProjectMemberDto(
     string? UserEmail,
     string? UserAvatar);
 
+public sealed record TaskAssigneeDto(
+    int UserId,
+    string UserName,
+    string? UserEmail,
+    string? UserAvatar);
+
 public sealed record TaskDto(
     int Id,
     int ProjectId,
@@ -103,6 +109,7 @@ public sealed record TaskDto(
     string Description,
     int? AssignedToId,
     string? AssignedToName,
+    IReadOnlyCollection<TaskAssigneeDto> Assignees,
     int CreatedById,
     string? CreatedByName,
     string Status,
@@ -273,6 +280,7 @@ public sealed record CreateTaskRequest(
     string Title,
     string Description,
     int? AssignedToId,
+    IReadOnlyCollection<int>? AssignedUserIds,
     string Status,
     string Priority,
     DateTime? DueDate,
@@ -284,6 +292,7 @@ public sealed record UpdateTaskRequest(
     string Title,
     string Description,
     int? AssignedToId,
+    IReadOnlyCollection<int>? AssignedUserIds,
     string Status,
     string Priority,
     DateTime? DueDate,
@@ -413,6 +422,8 @@ public sealed class CreateTaskRequestValidator : AbstractValidator<CreateTaskReq
     {
         RuleFor(static request => request.Title).NotEmpty().MaximumLength(200);
         RuleFor(static request => request.Description).MaximumLength(4000);
+        RuleForEach(static request => request.AssignedUserIds)
+            .GreaterThan(0);
         RuleFor(static request => request.Status).Must(ValidationRuleSet.BeTaskStatus).WithMessage("Invalid task status.");
         RuleFor(static request => request.Priority).Must(ValidationRuleSet.BePriority).WithMessage("Invalid priority.");
         RuleFor(static request => request.EstimatedHours).GreaterThanOrEqualTo(0);
@@ -427,6 +438,8 @@ public sealed class UpdateTaskRequestValidator : AbstractValidator<UpdateTaskReq
     {
         RuleFor(static request => request.Title).NotEmpty().MaximumLength(200);
         RuleFor(static request => request.Description).MaximumLength(4000);
+        RuleForEach(static request => request.AssignedUserIds)
+            .GreaterThan(0);
         RuleFor(static request => request.Status).Must(ValidationRuleSet.BeTaskStatus).WithMessage("Invalid task status.");
         RuleFor(static request => request.Priority).Must(ValidationRuleSet.BePriority).WithMessage("Invalid priority.");
         RuleFor(static request => request.EstimatedHours).GreaterThanOrEqualTo(0);

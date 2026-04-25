@@ -101,6 +101,17 @@ public sealed class ProjectTaskEntity
     public decimal ActualHours { get; init; }
     public int OrderIndex { get; init; }
     public DateTime CreatedAt { get; init; }
+    public IReadOnlyCollection<int> AssignedUserIds { get; init; } = [];
+    public IReadOnlyCollection<TaskAssigneeEntity> Assignees { get; set; } = [];
+}
+
+public sealed class TaskAssigneeEntity
+{
+    public int TaskId { get; init; }
+    public int UserId { get; init; }
+    public string UserName { get; init; } = string.Empty;
+    public string? UserEmail { get; init; }
+    public string? UserAvatar { get; init; }
 }
 
 public sealed class ExecutiveUpdateEntity

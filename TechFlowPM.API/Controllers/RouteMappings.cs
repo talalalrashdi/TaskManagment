@@ -238,6 +238,19 @@ public static class RouteMappings
         .WithSummary("Add a new executive update to a project.")
         .RequireAuthorization(Policies.Management);
 
+        projects.MapDelete("/{id:int}/updates/{updateId:int}", async (
+            int id,
+            int updateId,
+            IProjectService projectService,
+            CancellationToken cancellationToken) =>
+        {
+            await projectService.DeleteProjectUpdateAsync(id, updateId, cancellationToken);
+            return Results.Ok(ApiResponse<object?>.SuccessResponse(null, "Executive update deleted successfully."));
+        })
+        .WithName("DeleteProjectUpdate")
+        .WithSummary("Delete an executive update from a project.")
+        .RequireAuthorization(Policies.Management);
+
         projects.MapPost("/{id:int}/members", async (
             int id,
             AddProjectMemberRequest request,
