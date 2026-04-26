@@ -20,6 +20,8 @@
 - خدمة `techflowpm-sqlserver` يجب أن تكون على الأقل `standard` في Render.
   - SQL Server على Linux يحتاج حدًا أدنى `2 GB` من الذاكرة لبدء التشغيل.
   - خطة `starter` في Render توفر `512 MB` فقط، لذلك غالباً ستفشل الخدمة عند الإقلاع.
+- خدمة SQL Server في هذا الإعداد تعمل كمستخدم `root` داخل الحاوية.
+  - السبب هو تفادي مشاكل صلاحيات الكتابة على القرص الدائم mounted disk عند تشغيل صورة SQL Server الحديثة كمستخدم non-root.
 - إذا غيّرت أسماء الخدمات، حدّث هذه القيم داخل `render.yaml`:
   - `NEXT_PUBLIC_API_BASE_URL`
   - `NEXT_PUBLIC_SIGNALR_URL`
