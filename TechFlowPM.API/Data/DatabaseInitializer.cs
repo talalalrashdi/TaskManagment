@@ -12,23 +12,33 @@ public static class DatabaseInitializer
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInitializer");
 
-        var connectionString = configuration.GetConnectionString("Default")
-            ?? throw new InvalidOperationException("Connection string 'Default' was not found.");
+        var connectionString = SqlConnectionSettings.ResolveConnectionString(configuration);
 
         var builder = new SqlConnectionStringBuilder(connectionString);
         var databaseName = builder.InitialCatalog;
 
         builder.InitialCatalog = "master";
 
-        await using (var masterConnection = new SqlConnection(builder.ConnectionString))
-        {
-            await masterConnection.OpenAsync();
-            await masterConnection.ExecuteAsync(
-                $"IF DB_ID(N'{databaseName}') IS NULL CREATE DATABASE [{databaseName}];");
-        }
+        await ExecuteWithRetryAsync(
+            logger,
+            async () =>
+            {
+                await using var masterConnection = new SqlConnection(builder.ConnectionString);
+                await masterConnection.OpenAsync();
+                await masterConnection.ExecuteAsync(
+                    $"IF DB_ID(N'{databaseName}') IS NULL CREATE DATABASE [{databaseName}];");
+            });
 
         await using var appConnection = new SqlConnection(connectionString);
-        await appConnection.OpenAsync();
+        await ExecuteWithRetryAsync(
+            logger,
+            async () =>
+            {
+                if (appConnection.State != System.Data.ConnectionState.Open)
+                {
+                    await appConnection.OpenAsync();
+                }
+            });
 
         var scriptDirectory = Path.Combine(AppContext.BaseDirectory, "Data", "Scripts");
         if (!Directory.Exists(scriptDirectory))
@@ -75,5 +85,33 @@ public static class DatabaseInitializer
         {
             yield return builder.ToString();
         }
+    }
+
+    private static async Task ExecuteWithRetryAsync(ILogger logger, Func<Task> action)
+    {
+        const int maxAttempts = 12;
+        var delay = TimeSpan.FromSeconds(5);
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await action();
+                return;
+            }
+            catch (SqlException ex) when (attempt < maxAttempts)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Database is not ready yet. Retrying initialization attempt {Attempt} of {MaxAttempts} in {DelaySeconds} seconds.",
+                    attempt,
+                    maxAttempts,
+                    delay.TotalSeconds);
+
+                await Task.Delay(delay);
+            }
+        }
+
+        await action();
     }
 }

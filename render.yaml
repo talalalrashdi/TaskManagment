@@ -1,0 +1,96 @@
+services:
+  - type: pserv
+    name: techflowpm-sqlserver
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./deploy/render/sqlserver/Dockerfile
+    dockerContext: .
+    disk:
+      name: sqlserver-data
+      mountPath: /var/opt/mssql
+      sizeGB: 10
+    envVars:
+      - key: ACCEPT_EULA
+        value: "Y"
+      - key: MSSQL_SA_PASSWORD
+        sync: false
+
+  - type: web
+    name: techflowpm-api
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./TechFlowPM.API/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:10000
+      - key: Web__UseHttpsRedirection
+        value: "false"
+      - key: Cors__AllowAnyLocalOrigin
+        value: "false"
+      - key: Cors__AllowedOrigins__0
+        value: https://techflowpm-web.onrender.com
+      - key: SqlServer__Host
+        fromService:
+          type: pserv
+          name: techflowpm-sqlserver
+          property: host
+      - key: SqlServer__Port
+        fromService:
+          type: pserv
+          name: techflowpm-sqlserver
+          property: port
+      - key: SqlServer__Database
+        value: TechFlowPM
+      - key: SqlServer__User
+        value: sa
+      - key: SqlServer__Password
+        fromService:
+          type: pserv
+          name: techflowpm-sqlserver
+          envVarKey: MSSQL_SA_PASSWORD
+      - key: Jwt__Issuer
+        value: TechFlowPM
+      - key: Jwt__Audience
+        value: TechFlowPM.Client
+      - key: Jwt__Key
+        generateValue: true
+      - key: Jwt__AccessTokenMinutes
+        value: "480"
+      - key: Jwt__RefreshTokenDays
+        value: "30"
+      - key: Authentication__BypassEnabled
+        value: "true"
+      - key: Authentication__BypassUserId
+        value: "1"
+      - key: Authentication__BypassName
+        value: System Admin
+      - key: Authentication__BypassEmail
+        value: admin@techflow.local
+      - key: Authentication__BypassRole
+        value: Admin
+      - key: Authentication__BypassDeviceName
+        value: RENDER-DEMO
+      - key: Encryption__Key
+        generateValue: true
+      - key: Encryption__IV
+        generateValue: true
+
+  - type: web
+    name: techflowpm-web
+    runtime: node
+    plan: starter
+    rootDir: ./techflowpm-web
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://techflowpm-api.onrender.com/api/v1
+      - key: NEXT_PUBLIC_SIGNALR_URL
+        value: https://techflowpm-api.onrender.com/hubs/projects
+      - key: NEXT_PUBLIC_BYPASS_AUTH
+        value: "true"
