@@ -11,5 +11,6 @@ RUN dotnet publish "TechFlowPM.API.csproj" -c Release -o /app/publish /p:UseAppH
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-EXPOSE 8080
+ENV ASPNETCORE_URLS=http://0.0.0.0:10000
+EXPOSE 10000
 ENTRYPOINT ["dotnet", "TechFlowPM.API.dll"]

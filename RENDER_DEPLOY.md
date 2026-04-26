@@ -17,6 +17,9 @@
 
 - هذا الإعداد مناسب جداً للتجربة والرفع السريع.
 - لبيئة إنتاج مستقرة على المدى الطويل، الأفضل استخدام SQL Server مُدار خارج Render أو نقل المشروع إلى Postgres.
+- خدمة `techflowpm-sqlserver` يجب أن تكون على الأقل `standard` في Render.
+  - SQL Server على Linux يحتاج حدًا أدنى `2 GB` من الذاكرة لبدء التشغيل.
+  - خطة `starter` في Render توفر `512 MB` فقط، لذلك غالباً ستفشل الخدمة عند الإقلاع.
 - إذا غيّرت أسماء الخدمات، حدّث هذه القيم داخل `render.yaml`:
   - `NEXT_PUBLIC_API_BASE_URL`
   - `NEXT_PUBLIC_SIGNALR_URL`
@@ -34,6 +37,15 @@
    - `MSSQL_SA_PASSWORD`
 6. استخدم كلمة مرور قوية تحقق متطلبات SQL Server.
 7. أكمل إنشاء الـ Blueprint.
+
+## إذا ظهر فشل عند إنشاء SQL Server
+
+افحص هذين الأمرين أولاً:
+
+1. قيمة `MSSQL_SA_PASSWORD`
+   - يجب أن تحقق متطلبات SQL Server لكلمة مرور المستخدم `sa`.
+2. الخطة المستخدمة
+   - يجب أن تبقى خدمة `techflowpm-sqlserver` على `standard` أو أعلى.
 
 ## بعد أول Deploy
 
