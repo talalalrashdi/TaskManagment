@@ -12,32 +12,35 @@ internal static class SqlConnectionSettings
 {
     public static string ResolveConnectionString(IConfiguration configuration)
     {
-        var configured = configuration.GetConnectionString("Default");
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return configured;
-        }
-
         var host = configuration["SqlServer:Host"];
         var port = configuration["SqlServer:Port"] ?? "1433";
         var database = configuration["SqlServer:Database"] ?? "TechFlowPM";
         var user = configuration["SqlServer:User"] ?? "sa";
         var password = configuration["SqlServer:Password"];
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(password))
+        // Prefer explicit environment-driven SQL Server settings when present.
+        // This allows hosted environments such as Render to override the local
+        // development connection string defined in appsettings.json.
+        if (!string.IsNullOrWhiteSpace(host) && !string.IsNullOrWhiteSpace(password))
         {
-            throw new InvalidOperationException("Database connection string is missing.");
+            return new SqlConnectionStringBuilder
+            {
+                DataSource = $"{host},{port}",
+                InitialCatalog = database,
+                UserID = user,
+                Password = password,
+                TrustServerCertificate = true,
+                Encrypt = false
+            }.ConnectionString;
         }
 
-        return new SqlConnectionStringBuilder
+        var configured = configuration.GetConnectionString("Default");
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            DataSource = $"{host},{port}",
-            InitialCatalog = database,
-            UserID = user,
-            Password = password,
-            TrustServerCertificate = true,
-            Encrypt = false
-        }.ConnectionString;
+            return configured;
+        }
+
+        throw new InvalidOperationException("Database connection string is missing.");
     }
 }
 
