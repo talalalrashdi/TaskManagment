@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddSwaggerGen(ConfigureSwagger);
         services.AddValidatorsFromAssemblyContaining<DeviceLoginRequestValidator>();
         ConfigureCors(services, configuration);
+        services.AddHostedService<DatabaseInitializationWorker>();
 
         services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();

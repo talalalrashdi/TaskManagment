@@ -12,8 +12,6 @@ services:
     envVars:
       - key: ACCEPT_EULA
         value: "Y"
-      - key: MSSQL_MEMORY_LIMIT_MB
-        value: "1536"
       - key: MSSQL_SA_PASSWORD
         sync: false
 

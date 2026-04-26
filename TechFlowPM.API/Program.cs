@@ -19,8 +19,6 @@ builder.Services.AddTechFlowPm(builder.Configuration);
 
 var app = builder.Build();
 
-await app.Services.InitializeDatabaseAsync();
-
 app.UseSerilogRequestLogging();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
