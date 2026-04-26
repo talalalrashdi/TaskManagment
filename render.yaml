@@ -5,10 +5,6 @@ services:
     plan: standard
     dockerfilePath: ./deploy/render/sqlserver/Dockerfile
     dockerContext: .
-    disk:
-      name: sqlserver-data
-      mountPath: /var/opt/mssql
-      sizeGB: 10
     envVars:
       - key: ACCEPT_EULA
         value: "Y"
