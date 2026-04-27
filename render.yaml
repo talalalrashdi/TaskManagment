@@ -16,7 +16,7 @@ services:
       - key: Cors__AllowAnyLocalOrigin
         value: "false"
       - key: Cors__AllowedOrigins__0
-        value: https://techflowpm-web.onrender.com
+        value: https://techflowpm-web-ufoh.onrender.com
       - key: SqlServer__Host
         sync: false
       - key: SqlServer__Port
@@ -50,9 +50,9 @@ services:
       - key: Authentication__BypassDeviceName
         value: RENDER-DEMO
       - key: Encryption__Key
-        generateValue: true
+        value: techflowpm-license-secret-key-2026
       - key: Encryption__IV
-        generateValue: true
+        value: techflowpm-initv
 
   - type: web
     name: techflowpm-web
@@ -65,8 +65,8 @@ services:
       - key: NODE_VERSION
         value: "22.22.0"
       - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://techflowpm-api.onrender.com/api/v1
+        value: https://techflowpm-api-ufoh.onrender.com/api/v1
       - key: NEXT_PUBLIC_SIGNALR_URL
-        value: https://techflowpm-api.onrender.com/hubs/projects
+        value: https://techflowpm-api-ufoh.onrender.com/hubs/projects
       - key: NEXT_PUBLIC_BYPASS_AUTH
         value: "true"
