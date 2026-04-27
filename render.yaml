@@ -1,16 +1,4 @@
 services:
-  - type: pserv
-    name: techflowpm-sqlserver
-    runtime: docker
-    plan: standard
-    dockerfilePath: ./deploy/render/sqlserver/Dockerfile
-    dockerContext: .
-    envVars:
-      - key: ACCEPT_EULA
-        value: "Y"
-      - key: MSSQL_SA_PASSWORD
-        sync: false
-
   - type: web
     name: techflowpm-api
     runtime: docker
@@ -30,21 +18,15 @@ services:
       - key: Cors__AllowedOrigins__0
         value: https://techflowpm-web.onrender.com
       - key: SqlServer__Host
-        fromService:
-          type: pserv
-          name: techflowpm-sqlserver
-          property: host
+        sync: false
       - key: SqlServer__Port
         value: "1433"
       - key: SqlServer__Database
-        value: TechFlowPM
+        sync: false
       - key: SqlServer__User
-        value: sa
+        sync: false
       - key: SqlServer__Password
-        fromService:
-          type: pserv
-          name: techflowpm-sqlserver
-          envVarKey: MSSQL_SA_PASSWORD
+        sync: false
       - key: Jwt__Issuer
         value: TechFlowPM
       - key: Jwt__Audience

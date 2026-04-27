@@ -1,34 +1,61 @@
 # نشر TechFlowPM على Render
 
-هذا المشروع مجهز للنشر عبر Render Blueprint باستخدام الملف:
-
-- `render.yaml`
-
-الخدمات التي سيتم إنشاؤها:
+الإعداد الحالي في `render.yaml` مخصص للنشر المستقر كالتالي:
 
 1. `techflowpm-web`
    - واجهة Next.js
 2. `techflowpm-api`
    - API بـ .NET 8
-3. `techflowpm-sqlserver`
-   - SQL Server كخدمة داخلية خاصة
+3. قاعدة البيانات:
+   - **SQL Server خارجي**
+   - مثل Azure SQL أو SQL Server على VPS / VM
 
-## ملاحظات مهمة
+## لماذا أزلنا SQL Server من Render؟
 
-- هذا الإعداد مناسب جداً للتجربة والرفع السريع.
-- لبيئة إنتاج مستقرة على المدى الطويل، الأفضل استخدام SQL Server مُدار خارج Render أو نقل المشروع إلى Postgres.
-- خدمة `techflowpm-sqlserver` يجب أن تكون على الأقل `standard` في Render.
-  - SQL Server على Linux يحتاج حدًا أدنى `2 GB` من الذاكرة لبدء التشغيل.
-  - خطة `starter` في Render توفر `512 MB` فقط، لذلك غالباً ستفشل الخدمة عند الإقلاع.
-- خدمة SQL Server في هذا الإعداد الحالي تعمل بدون قرص دائم.
-  - هذا مقصود لتجاوز تعارضات صلاحيات الأقراص مع صورة SQL Server الحديثة على Render.
-  - النتيجة: البيانات مؤقتة وقد تُفقد إذا أُعيد إنشاء الخدمة.
-- إذا غيّرت أسماء الخدمات، حدّث هذه القيم داخل `render.yaml`:
-  - `NEXT_PUBLIC_API_BASE_URL`
-  - `NEXT_PUBLIC_SIGNALR_URL`
-  - `Cors__AllowedOrigins__0`
+التجارب السابقة أوضحت أن تشغيل صورة SQL Server 2022 كخدمة خاصة على Render غير مستقر في هذا المشروع:
 
-## خطوات الرفع
+- تعارضات صلاحيات مع صورة `mssql/server`
+- تعثر الإقلاع قبل فتح المنفذ
+- فشل deploy قبل أن تصل الواجهة والـ API إلى حالة مستقرة
+
+لذلك المسار العملي الآن:
+
+- Render للواجهة والـ API
+- SQL Server خارجي
+
+## الخدمات الموجودة في `render.yaml`
+
+- `techflowpm-api`
+- `techflowpm-web`
+
+## متغيرات البيئة المطلوبة للـ API
+
+في خدمة `techflowpm-api` داخل Render أضف القيم التالية:
+
+- `SqlServer__Host`
+- `SqlServer__Port`
+  - غالباً `1433`
+- `SqlServer__Database`
+- `SqlServer__User`
+- `SqlServer__Password`
+
+ومتغيرات أخرى موجودة مسبقاً في `render.yaml`:
+
+- `Jwt__Issuer`
+- `Jwt__Audience`
+- `Jwt__Key`
+- `Encryption__Key`
+- `Encryption__IV`
+
+## متغيرات البيئة للواجهة
+
+في خدمة `techflowpm-web`:
+
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_SIGNALR_URL`
+- `NEXT_PUBLIC_BYPASS_AUTH`
+
+## خطوات النشر
 
 1. ارفع المشروع إلى GitHub.
 2. افتح Render Dashboard.
@@ -36,63 +63,25 @@
    - `New`
    - `Blueprint`
 4. اربط المستودع الذي يحتوي على `render.yaml`.
-5. أثناء الإنشاء سيطلب منك Render قيمة:
-   - `MSSQL_SA_PASSWORD`
-6. استخدم كلمة مرور قوية تحقق متطلبات SQL Server.
-7. أكمل إنشاء الـ Blueprint.
+5. أثناء إعداد `techflowpm-api` أدخل معلومات SQL Server الخارجي.
+6. أكمل إنشاء الخدمات.
 
-## إذا ظهر فشل عند إنشاء SQL Server
+## قيم مثال
 
-افحص هذين الأمرين أولاً:
+إذا كانت قاعدة البيانات في Azure SQL:
 
-1. قيمة `MSSQL_SA_PASSWORD`
-   - يجب أن تحقق متطلبات SQL Server لكلمة مرور المستخدم `sa`.
-2. الخطة المستخدمة
-   - يجب أن تبقى خدمة `techflowpm-sqlserver` على `standard` أو أعلى.
+- `SqlServer__Host=your-server.database.windows.net`
+- `SqlServer__Port=1433`
+- `SqlServer__Database=TechFlowPM`
+- `SqlServer__User=your-admin-user`
+- `SqlServer__Password=your-strong-password`
 
-## بعد أول Deploy
+## ملاحظات مهمة
 
-تحقق من الروابط التالية:
-
-- الواجهة:
-  - `https://techflowpm-web.onrender.com`
-- الـ API:
-  - `https://techflowpm-api.onrender.com`
-
-اختبر نقطة الصحة:
-
-- `https://techflowpm-api.onrender.com/`
-
-يجب أن تعيد استجابة تحتوي على:
-
-- `TechFlow PM API`
-
-## وضع الدخول الحالي
-
-حالياً ملف `render.yaml` مضبوط على وضع تجريبي لتسهيل أول تشغيل:
-
-- `Authentication__BypassEnabled=true`
-- `NEXT_PUBLIC_BYPASS_AUTH=true`
-
-إذا أردت إطلاقاً فعلياً:
-
-1. غيّر في Render:
-   - `Authentication__BypassEnabled=false`
-   - `NEXT_PUBLIC_BYPASS_AUTH=false`
-2. أعد النشر.
-
-## إعدادات يمكن تعديلها لاحقاً
-
-- خطة الخدمة `plan`
-- حجم القرص `sizeGB` لخدمة SQL Server
-- دومين مخصص للواجهة أو الـ API
-
-## ملاحظات تقنية
-
-- الـ API أصبح يدعم تركيب الاتصال بقاعدة البيانات من متغيرات منفصلة:
-  - `SqlServer__Host`
-  - `SqlServer__Port`
-  - `SqlServer__Database`
-  - `SqlServer__User`
-  - `SqlServer__Password`
-- تمت إضافة retry logic عند تهيئة قاعدة البيانات حتى لا يفشل الإقلاع إذا تأخر SQL Server لبضع ثوانٍ.
+- الواجهة الآن تُبنى من:
+  - `techflowpm-web-render`
+  لأن `techflowpm-web` الأصلي مستودع Git متداخل وليس مناسباً مباشرة لسحب Render من المستودع الرئيسي.
+- وضع bypass auth ما زال مفعلاً لتسهيل أول تشغيل.
+- إذا أردت وضع إنتاج لاحقاً:
+  - `Authentication__BypassEnabled=false`
+  - `NEXT_PUBLIC_BYPASS_AUTH=false`
