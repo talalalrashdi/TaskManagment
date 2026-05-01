@@ -35,6 +35,8 @@ type ScheduleItem = {
   icon: "award" | "idea" | "audio";
   sortValue: number;
   note?: string;
+  canDelete?: boolean;
+  sourceId?: number;
 };
 
 type QuickTaskColor = "teal" | "amber" | "coral" | "slate";
@@ -648,6 +650,8 @@ export default function DashboardPage() {
         icon: appearance.icon,
         sortValue: timeMinutes,
         note: "حدث مخصص تمت إضافته من التقويم",
+        canDelete: true,
+        sourceId: event.id,
       } satisfies ScheduleItem;
     });
 
@@ -805,6 +809,14 @@ export default function DashboardPage() {
     ]);
 
     resetCalendarEventComposer();
+  };
+
+  const handleDeleteCalendarEvent = (eventId: number) => {
+    if (typeof window !== "undefined" && !window.confirm("هل أنت متأكد من حذف هذا الحدث؟")) {
+      return;
+    }
+
+    setStoredCalendarEvents((current) => current.filter((event) => event.id !== eventId));
   };
 
   const addExecutiveUpdateMutation = useMutation({
@@ -1253,17 +1265,32 @@ export default function DashboardPage() {
                                 <div className="space-y-2">
                                   {slotEvents.length > 0 ? (
                                     <>
-                                      <div className="flex items-center gap-0">
-                                        <div className="h-px flex-1 bg-[#e6eeef]" />
+                                      <div className="space-y-2">
+                                        <div className="h-px w-full bg-[#e6eeef]" />
                                         <div className="w-full max-w-[320px]">
-                                          <ScheduleCard item={slotEvents[0]} />
+                                          <ScheduleCard
+                                            item={slotEvents[0]}
+                                            onDelete={
+                                              slotEvents[0].canDelete && slotEvents[0].sourceId
+                                                ? () => handleDeleteCalendarEvent(slotEvents[0].sourceId!)
+                                                : undefined
+                                            }
+                                          />
                                         </div>
                                       </div>
 
                                       {slotEvents.length > 1 ? (
                                         <div className="ms-auto w-full max-w-[320px] space-y-2">
                                           {slotEvents.slice(1).map((item) => (
-                                            <ScheduleCard key={item.id} item={item} />
+                                            <ScheduleCard
+                                              key={item.id}
+                                              item={item}
+                                              onDelete={
+                                                item.canDelete && item.sourceId
+                                                  ? () => handleDeleteCalendarEvent(item.sourceId!)
+                                                  : undefined
+                                              }
+                                            />
                                           ))}
                                         </div>
                                       ) : null}
@@ -2017,7 +2044,13 @@ function ProjectCardSkeleton() {
   );
 }
 
-function ScheduleCard({ item }: { item: ScheduleItem }) {
+function ScheduleCard({
+  item,
+  onDelete,
+}: {
+  item: ScheduleItem;
+  onDelete?: () => void;
+}) {
   const tones = {
     teal: {
       line: "#0d7573",
@@ -2044,7 +2077,8 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
       className="rounded-[18px] px-4 py-3 shadow-[0_16px_28px_-28px_rgba(12,54,58,0.22)]"
       style={{ background: tones.bg }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
         <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: tones.line }} />
 
         <div className="min-w-0 flex-1">
@@ -2053,6 +2087,18 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
           </p>
           <p className="mt-1 text-[12px] text-[#5f6770]">{item.subtitle}</p>
         </div>
+        </div>
+
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label="حذف الحدث"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#8a969a] transition hover:bg-white/70 hover:text-[#526268]"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
     </div>
   );

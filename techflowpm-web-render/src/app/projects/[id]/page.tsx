@@ -936,7 +936,7 @@ function CostsTab({
   summary?: ProjectSummary;
 }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div>
       <Panel className="p-6">
         <p className="text-[13px] font-semibold text-[#0d7573]">التكاليف</p>
         <h3 className="mt-1 text-[22px] font-semibold text-[#15242a]">ميزانية مقابل تكلفة فعلية</h3>
@@ -952,17 +952,6 @@ function CostsTab({
             <span>{percentage(budgetConsumption)}</span>
           </div>
           <ProgressBar value={budgetConsumption} className="h-3 bg-[#e6f1f1]" />
-        </div>
-      </Panel>
-
-      <Panel className="p-6">
-        <p className="text-[13px] font-semibold text-[#0d7573]">مؤشرات الأداء</p>
-        <h3 className="mt-1 text-[22px] font-semibold text-[#15242a]">الأثر التشغيلي</h3>
-        <div className="mt-5 space-y-3">
-          <OwnerRow label="المهام المكتملة" value={String(summary?.doneTasks ?? 0)} />
-          <OwnerRow label="المهام الجارية" value={String(summary?.inProgressTasks ?? 0)} />
-          <OwnerRow label="المهام المتعثرة" value={String(summary?.blockedTasks ?? 0)} />
-          <OwnerRow label="حجم الفريق" value={`${summary?.teamSize ?? 0} عضو`} />
         </div>
       </Panel>
     </div>
