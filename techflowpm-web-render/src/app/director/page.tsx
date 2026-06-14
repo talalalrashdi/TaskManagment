@@ -1276,35 +1276,35 @@ export default function DirectorDashboardPage() {
 
     return [
       {
-        key: "Active",
+        key: "Active" as const,
         name: "نشط",
         value: projectsByStatus.get("Active")?.length ?? 0,
         color: statusPalette.Active,
         projects: projectsByStatus.get("Active") ?? [],
       },
       {
-        key: "Planning",
+        key: "Planning" as const,
         name: "تخطيط",
         value: projectsByStatus.get("Planning")?.length ?? 0,
         color: statusPalette.Planning,
         projects: projectsByStatus.get("Planning") ?? [],
       },
       {
-        key: "OnHold",
+        key: "OnHold" as const,
         name: "معلّق",
         value: projectsByStatus.get("OnHold")?.length ?? 0,
         color: statusPalette.OnHold,
         projects: projectsByStatus.get("OnHold") ?? [],
       },
       {
-        key: "Completed",
+        key: "Completed" as const,
         name: "مكتمل",
         value: projectsByStatus.get("Completed")?.length ?? 0,
         color: statusPalette.Completed,
         projects: projectsByStatus.get("Completed") ?? [],
       },
       {
-        key: "Cancelled",
+        key: "Cancelled" as const,
         name: "ملغي",
         value: projectsByStatus.get("Cancelled")?.length ?? 0,
         color: statusPalette.Cancelled,
