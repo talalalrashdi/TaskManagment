@@ -1,12 +1,15 @@
 "use client";
 
-import { type CSSProperties, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
+  FileUp,
   FileText,
   LayoutDashboard,
   ListTodo,
@@ -73,6 +76,7 @@ export default function ProjectDetailsPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabKey>("tasks");
   const [sidePanel, setSidePanel] = useState<SidePanelKey>("updates");
+  const [isSidePanelCollapsed, setIsSidePanelCollapsed] = useState(false);
   const [isSideComposerOpen, setIsSideComposerOpen] = useState(false);
   const [isProjectContentScrolled, setIsProjectContentScrolled] = useState(false);
   const [taskForm, setTaskForm] = useState<TaskFormState>({
@@ -325,6 +329,16 @@ export default function ProjectDetailsPage() {
                 : "bg-transparent shadow-none backdrop-blur-0",
             )}
           >
+            <button
+              type="button"
+              onClick={() => setIsSidePanelCollapsed((current) => !current)}
+              title={isSidePanelCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+              aria-label={isSidePanelCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+            >
+              {isSidePanelCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+
             <div className="flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
@@ -382,28 +396,29 @@ export default function ProjectDetailsPage() {
             </div>
           </div>
 
-          <nav className="mt-9 flex w-full flex-wrap justify-start gap-8 text-right" dir="rtl">
-            {tabs.map((item) => {
-              const Icon = item.icon;
+          <nav className="mt-9 w-full max-w-[860px] text-right" dir="rtl">
+            <div className="grid grid-cols-2 gap-2 rounded-[24px] bg-[#f7fbfb] p-1.5 md:grid-cols-4">
+              {tabs.map((item) => {
+                const Icon = item.icon;
 
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setTab(item.key)}
-                  className={cn(
-                    "relative inline-flex items-center gap-2 text-[16px] font-medium tracking-[-0.03em]",
-                    tab === item.key ? "text-[#0d7573]" : "text-[#7c8f91]",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                  {tab === item.key ? (
-                    <span className="absolute -bottom-3 right-0 h-[3px] w-7 rounded-full bg-[#0d7573]" />
-                  ) : null}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setTab(item.key)}
+                    className={cn(
+                      "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-3 py-2.5 text-[11px] leading-none transition md:text-[13px]",
+                      tab === item.key
+                        ? "bg-white font-bold text-[#0d7573] shadow-[0_16px_28px_-24px_rgba(12,54,58,0.28)]"
+                        : "font-medium text-[#7a8a8f]",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate whitespace-nowrap">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </nav>
 
           {tab === "tasks" ? (
@@ -453,18 +468,25 @@ export default function ProjectDetailsPage() {
           </div>
         </section>
 
-        <aside
-          className="order-first sticky top-2 m-2 flex h-[calc(100vh-1rem)] w-full max-w-[460px] flex-col items-end overflow-hidden rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-6 pt-7 text-right shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] sm:px-7 lg:px-8"
-          dir="rtl"
-        >
-          <div className="w-full border-b border-[#eef2f3] pb-6">
-            <div className="flex flex-row-reverse items-start justify-between gap-4">
-              <div>
-                <p className="text-[12px] font-semibold text-[#8a969a]">
-                  {sidePanel === "updates" ? "الموقف التنفيذي" : "فريق العمل"}
-                </p>
+        {isSidePanelCollapsed ? (
+          <aside
+            className="order-first sticky top-2 m-2 flex h-[calc(100vh-1rem)] w-full max-w-[96px] flex-col items-center overflow-hidden rounded-[34px] border border-[#eff3f4] bg-white px-3 pb-4 pt-7 text-right shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)]"
+            dir="rtl"
+          >
+            <div className="grid h-12 w-12 place-items-center rounded-[20px] bg-[#f4f7f8] text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.18)]">
+              {sidePanel === "updates" ? <MessageSquareMore className="h-5 w-5" /> : <UsersRound className="h-5 w-5" />}
+            </div>
+          </aside>
+        ) : (
+          <aside
+            className="order-first sticky top-2 m-2 flex h-[calc(100vh-1rem)] w-full max-w-[460px] flex-col items-end overflow-hidden rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-6 pt-7 text-right shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] sm:px-7 lg:px-8"
+            dir="rtl"
+          >
+            <div className="w-full border-b border-[#eef2f3] pb-6">
+            <div className="flex flex-row-reverse items-start gap-3">
+              <div className="min-w-0 flex-1">
                 <h2 className="mt-2 text-[30px] font-semibold tracking-[-0.05em] text-[#1d2747]">
-                  {sidePanel === "updates" ? "سجل المشروع" : "أعضاء المشروع"}
+                  {sidePanel === "updates" ? "الموقف التنفيذي" : "فريق العمل"}
                 </h2>
                 <p className="mt-2 text-[13px] leading-6 text-[#849095]">
                   {sidePanel === "updates"
@@ -482,10 +504,10 @@ export default function ProjectDetailsPage() {
                 type="button"
                 onClick={() => setSidePanel("updates")}
                 className={cn(
-                  "rounded-[18px] px-3 py-2.5 text-[13px] font-semibold transition",
+                  "rounded-[18px] px-3 py-2.5 text-[13px] transition",
                   sidePanel === "updates"
-                    ? "bg-white text-[#0d7573] shadow-[0_16px_28px_-24px_rgba(12,54,58,0.28)]"
-                    : "text-[#7a8a8f]",
+                    ? "bg-white font-bold text-[#0d7573] shadow-[0_16px_28px_-24px_rgba(12,54,58,0.28)]"
+                    : "font-medium text-[#7a8a8f]",
                 )}
               >
                 الموقف التنفيذي
@@ -494,10 +516,10 @@ export default function ProjectDetailsPage() {
                 type="button"
                 onClick={() => setSidePanel("team")}
                 className={cn(
-                  "rounded-[18px] px-3 py-2.5 text-[13px] font-semibold transition",
+                  "rounded-[18px] px-3 py-2.5 text-[13px] transition",
                   sidePanel === "team"
-                    ? "bg-white text-[#0d7573] shadow-[0_16px_28px_-24px_rgba(12,54,58,0.28)]"
-                    : "text-[#7a8a8f]",
+                    ? "bg-white font-bold text-[#0d7573] shadow-[0_16px_28px_-24px_rgba(12,54,58,0.28)]"
+                    : "font-medium text-[#7a8a8f]",
                 )}
               >
                 فريق العمل
@@ -568,7 +590,7 @@ export default function ProjectDetailsPage() {
                 {isSideComposerOpen ? (
                   <ChevronDown className="h-5 w-5 rotate-180 transition-transform" />
                 ) : sidePanel === "updates" ? (
-                  <Sparkles className="h-5 w-5 text-[#f0b819]" />
+                  <Plus className="h-5 w-5" />
                 ) : (
                   <UserPlus className="h-5 w-5" />
                 )}
@@ -649,8 +671,9 @@ export default function ProjectDetailsPage() {
                 )}
               </div>
             </div>
-          </div>
-        </aside>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );
@@ -959,22 +982,79 @@ function CostsTab({
 }
 
 function FilesTab() {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const removeSelectedFile = (targetFile: File) => {
+    setSelectedFiles((current) =>
+      current.filter(
+        (file) =>
+          !(
+            file.name === targetFile.name &&
+            file.size === targetFile.size &&
+            file.lastModified === targetFile.lastModified
+          ),
+      ),
+    );
+  };
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+    <div className="space-y-6">
       <Panel className="p-6">
-        <p className="text-[13px] font-semibold text-[#0d7573]">الملفات والملاحظات</p>
-        <h3 className="mt-1 text-[22px] font-semibold text-[#15242a]">مساحة جاهزة للربط</h3>
-        <p className="mt-4 text-[15px] leading-8 text-[#5d6d73]">
-          هذا القسم جاهز للربط مع SharePoint أو S3 أو أي نظام مستندات داخلي. يمكن استخدامه حالياً كمساحة عرض لملاحظات المشروع ومراجع التنفيذ.
-        </p>
-      </Panel>
-      <Panel className="p-6">
-        <div className="grid h-44 place-items-center rounded-[28px] border border-dashed border-[#d8e6e7] bg-[#fbfdfd] text-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <FileText className="mx-auto h-8 w-8 text-[#0d7573]" />
-            <p className="mt-3 text-[15px] font-semibold text-[#172228]">لا توجد ملفات مرفقة بعد</p>
-            <p className="mt-2 text-[13px] text-[#7d8b91]">يمكن إضافة واجهة رفع الملفات في المرحلة التالية.</p>
+            <p className="text-[13px] font-semibold text-[#0d7573]">الملفات والملاحظات</p>
+            <h3 className="mt-1 text-[22px] font-semibold text-[#15242a]">مرفقات المشروع</h3>
           </div>
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-[#11272c] px-4 py-2.5 text-[13px] font-bold text-white transition hover:bg-[#0a171a]">
+            <FileUp className="h-4 w-4" />
+            رفع الملفات
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 rounded-[28px] border border-[#e4ecee] bg-[#fbfdfd] p-3">
+          {selectedFiles.length > 0 ? (
+            <div className="space-y-2">
+              {selectedFiles.map((file) => (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="flex flex-col gap-2 rounded-[22px] bg-white px-4 py-3 text-right shadow-[0_18px_30px_-28px_rgba(12,54,58,0.2)] sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="order-2 min-w-0 flex-1 sm:order-1">
+                    <p className="text-[14px] font-bold text-[#15242a]">{file.name}</p>
+                    <p className="mt-1 text-[12px] font-medium text-[#7a8a8f]">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <div className="order-1 flex items-center gap-2 self-end sm:order-2 sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => removeSelectedFile(file)}
+                      className="inline-flex h-10 items-center justify-center gap-1 rounded-full bg-[#fff1ee] px-3 text-[12px] font-bold text-[#c45d45] transition hover:bg-[#ffe5de]"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      حذف
+                    </button>
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#eef6f6] text-[#0d7573]">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid h-52 place-items-center rounded-[24px] border border-dashed border-[#d8e6e7] bg-white text-center">
+              <div>
+                <FileText className="mx-auto h-8 w-8 text-[#0d7573]" />
+                <p className="mt-3 text-[15px] font-bold text-[#172228]">لا توجد ملفات مرفقة بعد</p>
+                <p className="mt-2 text-[13px] font-medium text-[#7d8b91]">ابدأ برفع أول ملف ليظهر داخل القائمة هنا.</p>
+              </div>
+            </div>
+          )}
         </div>
       </Panel>
     </div>
@@ -1008,7 +1088,6 @@ function ProjectMonthlyProgress({
   progressPercent: number;
 }) {
   const safeProgress = Math.max(0, Math.min(100, progressPercent));
-  const progressStyle = { "--project-progress": `${safeProgress}%` } as CSSProperties;
 
   return (
     <div className="mt-10 w-full">
@@ -1020,17 +1099,16 @@ function ProjectMonthlyProgress({
         </div>
       </div>
 
-      <div className="mt-3 pt-8" style={progressStyle}>
-        <div className="relative h-5 bg-[#dfe1e2]">
-          <div className="project-progress-fill absolute inset-y-0 right-0 overflow-hidden bg-[linear-gradient(90deg,#7dd3fc_0%,#38bdf8_46%,#0d7573_100%)] shadow-[0_18px_34px_-26px_rgba(13,117,115,0.7)]">
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,rgba(255,255,255,0.2)_45%,rgba(255,255,255,0)_100%)]" />
-          </div>
-          <div className="project-progress-marker absolute -top-12 bottom-0 w-px bg-[#1f2528]" />
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between text-[13px] font-bold text-[#26363a]">
+          <span>نسبة الإنجاز</span>
+          <span>{percentage(safeProgress)}</span>
+        </div>
+        <div className="h-3 rounded-full bg-[#e6f1f1]">
           <div
-            className="project-progress-marker absolute -top-12 translate-x-1/2 bg-[#dfe1e2]/95 px-3 py-1 text-[19px] font-medium leading-none text-[#111517] shadow-[0_10px_18px_-16px_rgba(12,54,58,0.55)]"
-          >
-            {percentage(safeProgress)}
-          </div>
+            className="h-full rounded-full bg-[linear-gradient(90deg,#0d7573,#7aa6a5)] transition-[width] duration-500 ease-out"
+            style={{ width: `${safeProgress}%` }}
+          />
         </div>
 
         <div

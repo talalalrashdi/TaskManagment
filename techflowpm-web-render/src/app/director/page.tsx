@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -10,9 +10,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -22,19 +19,21 @@ import {
   ArrowLeft,
   ArrowUpRight,
   CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   FolderKanban,
   Layers,
+  Pencil,
+  Plus,
   Sparkles,
-  Sun,
   TriangleAlert,
-  UsersRound,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
-import { AUTH_BYPASS_ENABLED, BYPASS_USER } from "@/lib/config";
+import { Button, Input, Select } from "@/components/ui/primitives";
 import { cn, formatCurrency, formatDate, percentage } from "@/lib/utils";
-import { useAuthStore } from "@/store/auth-store";
-import type { DashboardStats, ExecutiveUpdate, PagedResult, Project, ProjectDetail, Task, User } from "@/types/domain";
+import type { ExecutiveUpdate, PagedResult, Project, ProjectDetail, Task } from "@/types/domain";
 
 type DepartmentMeta = {
   id: number;
@@ -63,13 +62,66 @@ type DepartmentSnapshot = DepartmentMeta & {
 
 type DepartmentFilter = "all" | number;
 
-type EnrichedOperation = {
+type DirectorProjectReference = {
+  id: number;
+  title: string;
+};
+
+type DirectorStatusSummary = {
+  key: Project["status"] | "Completed";
+  name: string;
+  value: number;
+  color: string;
+  projects: DirectorProjectReference[];
+};
+
+type DirectorWorkloadTaskReference = {
+  id: number;
+  title: string;
+  projectTitle: string;
+  status: Task["status"];
+};
+
+type DirectorAsideView = "calendar" | "updates" | "tasks";
+type DirectorCalendarEventType = "meeting" | "delivery" | "call" | "other";
+type DirectorAccent = "teal" | "amber" | "coral";
+
+type DirectorCalendarEvent = {
+  id: number;
+  title: string;
+  dateKey: string;
+  time: string;
+  type: DirectorCalendarEventType;
+};
+
+type CalendarDayCell = {
+  date: Date;
+  dateKey: string;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+};
+
+type DirectorScheduleItem = {
   id: string;
   title: string;
   subtitle: string;
-  description: string;
-  occurredAt: string;
-  tone: "teal" | "amber" | "coral" | "slate";
+  time: string;
+  timeMinutes: number | null;
+  dateKey: string;
+  accent: DirectorAccent;
+  sortValue: number;
+  note?: string;
+};
+
+type DirectorExecutiveFeedItem = {
+  id: string;
+  projectId: number;
+  projectTitle: string;
+  content: string;
+  updateType: ExecutiveUpdate["updateType"];
+  createdByName?: string | null;
+  createdAt: string;
 };
 
 const monthLabels = [
@@ -85,6 +137,35 @@ const monthLabels = [
   "أكتوبر",
   "نوفمبر",
   "ديسمبر",
+];
+
+const directorAsideTabs = [
+  { key: "calendar" as const, label: "التقويم", icon: CalendarDays },
+  { key: "updates" as const, label: "الموقف التنفيذي", icon: Sparkles },
+  { key: "tasks" as const, label: "المهام الشخصية", icon: Pencil },
+];
+
+const calendarHeader = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const calendarMonthLabels = [
+  "يناير",
+  "فبراير",
+  "مارس",
+  "أبريل",
+  "مايو",
+  "يونيو",
+  "يوليو",
+  "أغسطس",
+  "سبتمبر",
+  "أكتوبر",
+  "نوفمبر",
+  "ديسمبر",
+];
+const calendarWeekdayLabels = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const calendarEventTypeOptions: Array<{ key: DirectorCalendarEventType; label: string }> = [
+  { key: "meeting", label: "اجتماع" },
+  { key: "delivery", label: "تسليم" },
+  { key: "call", label: "مكالمة" },
+  { key: "other", label: "أخرى" },
 ];
 
 const departmentCatalog: DepartmentMeta[] = [
@@ -127,21 +208,6 @@ function getDepartmentMeta(project: Project) {
   );
 }
 
-function translateTaskStatus(status: Task["status"]) {
-  if (status === "Todo") return "جديدة";
-  if (status === "InProgress") return "قيد التنفيذ";
-  if (status === "Review") return "مراجعة";
-  if (status === "Done") return "منتهية";
-  return "متعثرة";
-}
-
-function translateUserRole(role: User["role"]) {
-  if (role === "Admin") return "مدير الدائرة";
-  if (role === "Project Manager") return "مدير مشروع";
-  if (role === "Member") return "عضو فريق";
-  return "مراقب";
-}
-
 function translateUpdateType(type: ExecutiveUpdate["updateType"]) {
   if (type === "StatusUpdate") return "تحديث حالة";
   if (type === "Milestone") return "منجز رئيسي";
@@ -149,14 +215,12 @@ function translateUpdateType(type: ExecutiveUpdate["updateType"]) {
   return "إنجاز";
 }
 
-function getInitials(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+function translateTaskStatus(status: Task["status"]) {
+  if (status === "Todo") return "جديدة";
+  if (status === "InProgress") return "قيد التنفيذ";
+  if (status === "Review") return "مراجعة";
+  if (status === "Done") return "منتهية";
+  return "متعثرة";
 }
 
 function isCompletedProject(project: Project) {
@@ -198,22 +262,102 @@ function getProjectRiskScore(project: Project, tasks: Task[], referenceDate: Dat
   return score;
 }
 
-function getOperationToneFromUpdate(type: ExecutiveUpdate["updateType"]): EnrichedOperation["tone"] {
-  if (type === "Issue") return "coral";
-  if (type === "Milestone") return "amber";
-  if (type === "Achievement") return "teal";
-  return "slate";
-}
-
-function getOperationToneFromTask(task: Task): EnrichedOperation["tone"] {
-  if (task.status === "Blocked") return "coral";
-  if (task.priority === "High" || task.priority === "Critical") return "amber";
-  if (task.status === "Done") return "teal";
-  return "slate";
-}
-
 function clampPercentage(value: number) {
   return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function getDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDateKeyFromValue(value?: string | null) {
+  return value ? value.slice(0, 10) : null;
+}
+
+function buildCalendarCells(month: Date): CalendarDayCell[] {
+  const firstDayOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+  const gridStart = new Date(firstDayOfMonth);
+  gridStart.setDate(firstDayOfMonth.getDate() - firstDayOfMonth.getDay());
+  const todayKey = getDateKey(new Date());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + index);
+
+    return {
+      date,
+      dateKey: getDateKey(date),
+      dayNumber: date.getDate(),
+      isCurrentMonth: date.getMonth() === month.getMonth() && date.getFullYear() === month.getFullYear(),
+      isToday: getDateKey(date) === todayKey,
+    };
+  });
+}
+
+function getCalendarDateLabel(date: Date) {
+  return {
+    month: calendarMonthLabels[date.getMonth()],
+    weekday: calendarWeekdayLabels[date.getDay()],
+    day: String(date.getDate()),
+    year: String(date.getFullYear()),
+  };
+}
+
+function parseTimeValueToMinutes(value?: string | null) {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [hoursPart, minutesPart] = value.split(":");
+  const hours = Number(hoursPart);
+  const minutes = Number(minutesPart);
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function formatMinutesAsArabicTime(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  return new Intl.DateTimeFormat("ar-OM", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(2026, 0, 1, hours, mins));
+}
+
+function getDirectorProjectAccent(type: Project["type"]): DirectorAccent {
+  if (type === "Cybersecurity" || type === "Maintenance") {
+    return "coral";
+  }
+
+  if (type === "Networks") {
+    return "amber";
+  }
+
+  return "teal";
+}
+
+function getCalendarEventAccent(type: DirectorCalendarEventType): DirectorAccent {
+  if (type === "delivery") return "amber";
+  if (type === "call") return "coral";
+  return "teal";
+}
+
+function translateCalendarEventType(type: DirectorCalendarEventType) {
+  return (
+    {
+      meeting: "اجتماع",
+      delivery: "تسليم",
+      call: "مكالمة",
+      other: "أخرى",
+    }[type] ?? "أخرى"
+  );
 }
 
 function getMonthRange(year: number, monthIndex: number) {
@@ -221,6 +365,18 @@ function getMonthRange(year: number, monthIndex: number) {
     start: new Date(year, monthIndex, 1),
     end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999),
   };
+}
+
+function formatArabicNumber(value: number) {
+  return new Intl.NumberFormat("ar").format(value);
+}
+
+function formatProjectCountLabel(count: number) {
+  const formatted = formatArabicNumber(count);
+
+  if (count === 1) return `${formatted} مشروع`;
+  if (count === 2) return `${formatted} مشروعان`;
+  return `${formatted} مشاريع`;
 }
 
 function DirectorMetricCard({
@@ -258,31 +414,63 @@ function DirectorMetricCard({
 }
 
 function DirectorSection({
+  id,
   title,
   subtitle,
   action,
   children,
+  className,
+  collapsible = false,
 }: {
+  id?: string;
   title: string;
   subtitle: string;
   action?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
+  collapsible?: boolean;
 }) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="rounded-[30px] border border-white/70 bg-white/88 p-5 shadow-[0_24px_54px_-40px_rgba(12,54,58,0.24)]"
+      id={id}
+      className={cn("rounded-[30px] border border-white/70 bg-white/88 p-5 shadow-[0_24px_54px_-40px_rgba(12,54,58,0.24)]", className)}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-[22px] font-semibold tracking-[-0.04em] text-[#12262b]">{title}</h2>
           <p className="mt-1 text-[13px] leading-6 text-[#7d8b90]">{subtitle}</p>
         </div>
-        {action}
+        {action || collapsible ? (
+          <div className="flex items-center gap-2 self-start">
+            {action}
+            {collapsible ? (
+              <button
+                type="button"
+                onClick={() => setIsCollapsed((current) => !current)}
+                title={isCollapsed ? "توسيع القسم" : "طي القسم"}
+                aria-label={isCollapsed ? "توسيع القسم" : "طي القسم"}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#f4f7f8] text-[#617278] transition hover:bg-[#eaf1f2] hover:text-[#172228]"
+              >
+                <ChevronDown className={cn("h-4 w-4 transition-transform", isCollapsed && "rotate-180")} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="mt-5">
+        {isCollapsed ? (
+          <div className="rounded-[24px] border border-dashed border-[#d9e7e8] bg-[#f9fcfc] px-5 py-6 text-center text-[14px] text-[#7d8b91]">
+            تم طي هذا القسم.
+          </div>
+        ) : (
+          children
+        )}
+      </div>
     </motion.section>
   );
 }
@@ -295,41 +483,499 @@ function DirectorEmptyState({ message }: { message: string }) {
   );
 }
 
+function DirectorInlinePopover({
+  align = "right",
+  label,
+  title,
+  children,
+}: {
+  align?: "left" | "right";
+  label: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isOpen]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+        className="grid h-7 w-7 cursor-pointer list-none place-items-center rounded-full bg-white text-[13px] font-bold text-[#172228] shadow-[0_12px_22px_-18px_rgba(12,54,58,0.24)] transition hover:bg-[#f4f7f8] [&::-webkit-details-marker]:hidden"
+      >
+        ?
+      </button>
+      {isOpen ? (
+        <div
+          className={cn(
+            "absolute top-9 z-30 w-[260px] rounded-[20px] border border-[#e5ecee] bg-white p-4 text-right shadow-[0_24px_48px_-30px_rgba(12,54,58,0.26)]",
+            align === "left" ? "left-0" : "right-0",
+          )}
+        >
+          <p className="text-[13px] font-bold text-[#172228]">{title}</p>
+          <div className="mt-3 space-y-2 text-[12px] leading-6 text-[#64757a]">{children}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DirectorCalendarAside({
+  activeView,
+  calendarDays,
+  calendarEventsByDay,
+  calendarEventTime,
+  calendarEventTitle,
+  calendarEventType,
+  calendarHeading,
+  calendarMonthHeading,
+  executiveUpdates,
+  isCalendarEventComposerOpen,
+  onAddCalendarEvent,
+  onCalendarDateSelect,
+  onCalendarEventTimeChange,
+  onCalendarEventTitleChange,
+  onCalendarEventTypeChange,
+  onCalendarMonthChange,
+  onComposerToggle,
+  onViewChange,
+  selectedCalendarDateKey,
+  selectedDateEvents,
+}: {
+  activeView: DirectorAsideView;
+  calendarDays: CalendarDayCell[];
+  calendarEventsByDay: Map<string, DirectorScheduleItem[]>;
+  calendarEventTime: string;
+  calendarEventTitle: string;
+  calendarEventType: DirectorCalendarEventType;
+  calendarHeading: ReturnType<typeof getCalendarDateLabel>;
+  calendarMonthHeading: ReturnType<typeof getCalendarDateLabel>;
+  executiveUpdates: DirectorExecutiveFeedItem[];
+  isCalendarEventComposerOpen: boolean;
+  onAddCalendarEvent: () => void;
+  onCalendarDateSelect: (date: Date) => void;
+  onCalendarEventTimeChange: (value: string) => void;
+  onCalendarEventTitleChange: (value: string) => void;
+  onCalendarEventTypeChange: (value: DirectorCalendarEventType) => void;
+  onCalendarMonthChange: (direction: -1 | 1) => void;
+  onComposerToggle: () => void;
+  onViewChange: (view: DirectorAsideView) => void;
+  selectedCalendarDateKey: string;
+  selectedDateEvents: DirectorScheduleItem[];
+}) {
+  return (
+    <aside
+      dir="rtl"
+      className="order-first relative m-2 h-[calc(100vh-1rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-8 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] sm:px-7 lg:px-8"
+    >
+      <div className="sticky top-0 z-30 -mx-6 bg-transparent px-6 pb-0 pt-7 shadow-none backdrop-blur-0 transition-all duration-300 sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8">
+        <div className="rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
+          <div className="grid grid-cols-3 gap-1.5">
+            {directorAsideTabs.map((tab) => {
+              const Icon = tab.icon;
+
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => onViewChange(tab.key)}
+                  className={cn(
+                    "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
+                    activeView === tab.key
+                      ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
+                      : "font-medium text-[#7c8f91]",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="hidden whitespace-nowrap md:inline">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {activeView === "calendar" ? (
+        <>
+          <div className="mt-8 flex items-center justify-between">
+            <div>
+              <h2 className="text-[26px] font-semibold tracking-[-0.05em] text-[#1d2747] lg:text-[28px]">
+                {calendarMonthHeading.month} {calendarMonthHeading.year}
+              </h2>
+              <p className="mt-1 text-[13px] text-[#7c8793]">
+                {calendarHeading.weekday}، {calendarHeading.day} {calendarHeading.month}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 text-[#8a9098]">
+              <button
+                type="button"
+                onClick={() => onCalendarMonthChange(-1)}
+                className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-[#f4f7f8] hover:text-[#11272c]"
+                aria-label="الشهر السابق"
+              >
+                <ChevronLeft className="h-7 w-7" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onCalendarMonthChange(1)}
+                className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-[#f4f7f8] hover:text-[#11272c]"
+                aria-label="الشهر التالي"
+              >
+                <ChevronRight className="h-7 w-7" />
+              </button>
+            </div>
+          </div>
+
+          <div dir="rtl" className="mt-6 grid grid-cols-7 gap-y-1 text-center">
+            {calendarHeader.map((label) => (
+              <span key={label} className="text-[11px] font-bold tracking-[-0.01em] text-[#26363a]">
+                {label}
+              </span>
+            ))}
+
+            {calendarDays.map((day) => {
+              const dayEvents = calendarEventsByDay.get(day.dateKey) ?? [];
+              const eventAccents = [...new Set(dayEvents.map((item) => item.accent))].slice(0, 3);
+              const primaryAccent = dayEvents[0]?.accent ?? "teal";
+              const isSelected = day.dateKey === selectedCalendarDateKey;
+
+              return (
+                <button
+                  key={day.dateKey}
+                  type="button"
+                  onClick={() => onCalendarDateSelect(day.date)}
+                  className={cn(
+                    "relative mx-auto flex h-[42px] w-[42px] items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d7573]",
+                    !day.isCurrentMonth && "opacity-60",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "relative z-10 grid h-[38px] w-[38px] place-items-center rounded-full text-[13px] font-medium transition-all",
+                      isSelected && "font-bold",
+                      isSelected &&
+                        primaryAccent === "teal" &&
+                        "bg-[#0d7573] text-white shadow-[0_16px_28px_-18px_rgba(13,117,115,0.55)]",
+                      isSelected &&
+                        primaryAccent === "amber" &&
+                        "bg-[#fec71a] text-white shadow-[0_16px_28px_-18px_rgba(240,184,25,0.5)]",
+                      isSelected &&
+                        primaryAccent === "coral" &&
+                        "bg-[#ff8a69] text-white shadow-[0_16px_28px_-18px_rgba(255,138,105,0.48)]",
+                      !isSelected && day.isToday && "border border-[#0d7573] bg-[#edf8f8] text-[#0d7573]",
+                      !isSelected && day.isCurrentMonth && "text-[#63686f]",
+                      !isSelected && !day.isCurrentMonth && "text-[#b7c0c5]",
+                    )}
+                  >
+                    {day.dayNumber}
+                  </span>
+
+                  {!isSelected && eventAccents.length > 0 ? (
+                    <span className="absolute bottom-0 flex items-center gap-0.5">
+                      {eventAccents.map((accent) => (
+                        <span
+                          key={`${day.dateKey}-${accent}`}
+                          className={cn(
+                            "h-1 w-1 rounded-full",
+                            accent === "teal" && "bg-[#0d7573]",
+                            accent === "amber" && "bg-[#f0b819]",
+                            accent === "coral" && "bg-[#ff8a69]",
+                          )}
+                        />
+                      ))}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 flex min-h-[520px] flex-col border-t border-[#eff3f4] pt-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-[18px] font-semibold text-[#15242a]">أجندة اليوم</h3>
+                <p className="mt-1 text-[13px] text-[#849095]">
+                  {calendarHeading.weekday}، {calendarHeading.day} {calendarHeading.month}
+                </p>
+              </div>
+              <span className="rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
+                {selectedDateEvents.length} حدث
+              </span>
+            </div>
+
+            <div className="min-h-0 flex-1 pe-1">
+              {selectedDateEvents.length > 0 ? (
+                <div className="space-y-3">
+                  {selectedDateEvents.map((item) => (
+                    <DirectorScheduleCard key={item.id} item={item} />
+                  ))}
+                </div>
+              ) : (
+                <DirectorAsideEmptyState
+                  title="لا توجد أحداث في هذا اليوم"
+                  description="اختر يوماً آخر أو أضف بيانات مشاريع وأحداث ليظهر الجدول هنا."
+                />
+              )}
+            </div>
+
+            <div
+              className={cn(
+                "sticky bottom-0 z-20 -mx-6 mt-auto w-auto shrink-0 px-6 pb-0 pt-9 backdrop-blur-xl sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8",
+                isCalendarEventComposerOpen
+                  ? "bg-[linear-gradient(180deg,#ffffff00_0%,#ffffffe6_34%,#fffffff7_100%)]"
+                  : "bg-transparent",
+              )}
+            >
+              <div className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-[linear-gradient(180deg,#ffffff00_0%,#ffffffe8_100%)] backdrop-blur-sm" />
+              <button
+                type="button"
+                onClick={onComposerToggle}
+                className="group relative z-10 flex w-full flex-row-reverse items-center justify-between gap-4 rounded-[22px] border border-transparent bg-[#f4f7f8]/90 px-4 py-3 text-right backdrop-blur transition duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.01] hover:border-[#dce7e8] hover:bg-[#eef4f5]/95 hover:shadow-[0_18px_34px_-28px_rgba(12,54,58,0.28)] active:translate-y-0 active:scale-[0.995]"
+                aria-expanded={isCalendarEventComposerOpen}
+              >
+                <div>
+                  <h3 className="text-[18px] font-semibold text-[#15242a]">إضافة حدث</h3>
+                  <p className="mt-1 text-[12px] text-[#849095]">
+                    {calendarHeading.weekday}، {calendarHeading.day} {calendarHeading.month}
+                  </p>
+                </div>
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#0d7573] shadow-[0_14px_26px_-22px_rgba(12,54,58,0.28)] transition-transform duration-300 group-hover:rotate-3">
+                  {isCalendarEventComposerOpen ? <ChevronDown className="h-5 w-5 rotate-180" /> : <Plus className="h-5 w-5" />}
+                </span>
+              </button>
+
+              <div
+                className={cn(
+                  "relative z-10 grid transition-all duration-300 ease-out",
+                  isCalendarEventComposerOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                )}
+              >
+                <div className="overflow-hidden">
+                  <div className="space-y-3 pt-4">
+                    <Input
+                      dir="rtl"
+                      value={calendarEventTitle}
+                      onChange={(event) => onCalendarEventTitleChange(event.target.value)}
+                      placeholder="اكتب عنوان الحدث..."
+                      className="h-11 rounded-2xl border-[#e4ecee] bg-white px-4 text-right"
+                    />
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block space-y-2 text-right">
+                        <span className="text-[12px] font-semibold text-[#66787d]">وقت الحدث</span>
+                        <Input
+                          dir="ltr"
+                          type="time"
+                          min="06:00"
+                          max="16:00"
+                          value={calendarEventTime}
+                          onChange={(event) => onCalendarEventTimeChange(event.target.value)}
+                          className="h-11 rounded-2xl border-[#e4ecee] bg-white px-4 text-center"
+                        />
+                      </label>
+
+                      <label className="block space-y-2 text-right">
+                        <span className="text-[12px] font-semibold text-[#66787d]">نوع الحدث</span>
+                        <Select
+                          dir="rtl"
+                          value={calendarEventType}
+                          onChange={(event) => onCalendarEventTypeChange(event.target.value as DirectorCalendarEventType)}
+                          className="h-11 rounded-2xl border-[#e0e9eb] bg-white"
+                        >
+                          {calendarEventTypeOptions.map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={onAddCalendarEvent}
+                        disabled={!calendarEventTitle.trim()}
+                        className="h-10 rounded-full bg-[#11272c] px-4 text-[13px] text-white hover:bg-[#0a171a]"
+                      >
+                        إضافة الحدث
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : activeView === "updates" ? (
+        <div className="mt-8 flex min-h-[calc(100dvh-8rem)] flex-col">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-[22px] font-semibold tracking-[-0.04em] text-[#15242a]">الموقف التنفيذي</h3>
+              <p className="mt-1 text-[13px] text-[#7d8b91]">جميع المواقف التنفيذية لجميع المشاريع ضمن نطاق العرض الحالي.</p>
+            </div>
+            <span className="rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
+              {executiveUpdates.length} تحديث
+            </span>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pe-1 pb-4">
+            {executiveUpdates.length > 0 ? (
+              executiveUpdates.map((update) => <DirectorExecutiveUpdateCard key={update.id} update={update} />)
+            ) : (
+              <DirectorAsideEmptyState
+                title="لا توجد مواقف تنفيذية حالياً"
+                description="لا توجد تحديثات تنفيذية ضمن المشاريع الظاهرة في صفحة مدير النظام."
+              />
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8">
+          <DirectorAsideEmptyState
+            title="المهام الشخصية موجودة في الصفحات التشغيلية"
+            description="هذا التبويب ظاهر للحفاظ على نفس تركيب اللوحة الجانبية ويمكن توسيعه لاحقاً داخل صفحة مدير الدائرة."
+          />
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function DirectorScheduleCard({ item }: { item: DirectorScheduleItem }) {
+  const tones = {
+    teal: {
+      line: "#0d7573",
+      text: "#0d7573",
+      bg: "#f3fbfb",
+    },
+    amber: {
+      line: "#f0b819",
+      text: "#d89b09",
+      bg: "#fffdf5",
+    },
+    coral: {
+      line: "#ff8a69",
+      text: "#ef7c61",
+      bg: "#fffaf8",
+    },
+  }[item.accent];
+
+  return (
+    <div className="rounded-[18px] px-4 py-3 shadow-[0_16px_28px_-28px_rgba(12,54,58,0.22)]" style={{ background: tones.bg }}>
+      <div className="flex items-start gap-3">
+        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: tones.line }} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold tracking-[-0.02em]" style={{ color: tones.text }}>
+            {item.title}
+          </p>
+          <p className="mt-1 text-[12px] text-[#5f6770]">{item.subtitle}</p>
+          <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[#849095]">
+            <span>{item.time}</span>
+            {item.note ? <span className="truncate">{item.note}</span> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DirectorExecutiveUpdateCard({ update }: { update: DirectorExecutiveFeedItem }) {
+  const tone = {
+    StatusUpdate: {
+      badge: "bg-[#eef4f5] text-[#617278]",
+      line: "#0d7573",
+      bg: "#ffffff",
+    },
+    Milestone: {
+      badge: "bg-[#fff8df] text-[#b98800]",
+      line: "#f0b819",
+      bg: "#fffef8",
+    },
+    Issue: {
+      badge: "bg-[#fff1ec] text-[#cf6247]",
+      line: "#ef7c61",
+      bg: "#fffaf8",
+    },
+    Achievement: {
+      badge: "bg-[#edf8f8] text-[#0d7573]",
+      line: "#0d7573",
+      bg: "#f8fcfc",
+    },
+  }[update.updateType];
+
+  return (
+    <Link
+      href={`/projects/${update.projectId}`}
+      className="block rounded-[22px] border border-[#edf2f3] px-4 py-4 shadow-[0_18px_30px_-28px_rgba(12,54,58,0.2)] transition duration-200 hover:-translate-y-0.5 hover:border-[#dbe7e8] hover:shadow-[0_22px_36px_-26px_rgba(12,54,58,0.24)]"
+      style={{ backgroundColor: tone.bg }}
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: tone.line }} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-bold text-[#172228]">{update.projectTitle}</p>
+              <p className="mt-1 text-[12px] text-[#7d8b91]">
+                {update.createdByName ?? "النظام"} • {formatDate(update.createdAt)}
+              </p>
+            </div>
+            <span className={cn("shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold", tone.badge)}>
+              {translateUpdateType(update.updateType)}
+            </span>
+          </div>
+          <p className="mt-3 text-[14px] leading-7 text-[#55646a]">{update.content}</p>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function DirectorAsideEmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-[20px] border border-dashed border-[#dce6e7] bg-white px-5 py-8 text-center">
+      <p className="text-[15px] font-semibold text-[#172228]">{title}</p>
+      <p className="mt-2 text-[13px] leading-6 text-[#7d8b91]">{description}</p>
+    </div>
+  );
+}
+
 export default function DirectorDashboardPage() {
-  const storedUser = useAuthStore((state) => state.user);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentFilter>("all");
   const [isScrolled, setIsScrolled] = useState(false);
-
-  const currentUser = useMemo(
-    () =>
-      storedUser
-        ? {
-            id: storedUser.id,
-            name: storedUser.name,
-            role: storedUser.role,
-            avatar: storedUser.avatar ?? null,
-          }
-        : AUTH_BYPASS_ENABLED
-          ? {
-              id: BYPASS_USER.id,
-              name: BYPASS_USER.name,
-              role: BYPASS_USER.role,
-              avatar: null,
-            }
-          : {
-              id: 0,
-              name: "مدير الدائرة",
-              role: "Viewer" as const,
-              avatar: null,
-            },
-    [storedUser],
-  );
-
-  const statsQuery = useQuery({
-    queryKey: ["director-stats"],
-    queryFn: () => apiClient.get<DashboardStats>("/projects/stats").then((response) => response.data),
+  const [directorAsideView, setDirectorAsideView] = useState<DirectorAsideView>("calendar");
+  const [isAsideCollapsed, setIsAsideCollapsed] = useState(false);
+  const [isDepartmentProjectsCollapsed, setIsDepartmentProjectsCollapsed] = useState(false);
+  const [isCalendarEventComposerOpen, setIsCalendarEventComposerOpen] = useState(false);
+  const [calendarEventTitle, setCalendarEventTitle] = useState("");
+  const [calendarEventTime, setCalendarEventTime] = useState("09:00");
+  const [calendarEventType, setCalendarEventType] = useState<DirectorCalendarEventType>("meeting");
+  const [manualCalendarEvents, setManualCalendarEvents] = useState<DirectorCalendarEvent[]>([]);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => new Date());
 
   const projectsQuery = useQuery({
     queryKey: ["director-projects"],
@@ -431,18 +1077,6 @@ export default function DirectorDashboardPage() {
     () => yearScopedDetails.filter((detail) => filteredProjectIds.has(detail.project.id)),
     [filteredProjectIds, yearScopedDetails],
   );
-
-  const allMembers = useMemo(() => {
-    const memberMap = new Map<number, { name: string; role: string }>();
-
-    filteredDetails.forEach((detail) => {
-      detail.members.forEach((member) => {
-        memberMap.set(member.userId, { name: member.userName, role: member.roleInProject });
-      });
-    });
-
-    return Array.from(memberMap.entries()).map(([id, value]) => ({ id, ...value }));
-  }, [filteredDetails]);
 
   const referenceDate = useMemo(() => new Date(selectedYear, new Date().getMonth(), new Date().getDate()), [selectedYear]);
 
@@ -593,7 +1227,7 @@ export default function DirectorDashboardPage() {
         label: department.name,
         hint:
           department.projectCount > 0
-            ? `${department.projectCount} مشروع • ${department.members} عضو`
+            ? `${formatProjectCountLabel(department.projectCount)} • ${formatArabicNumber(department.members)} عضو`
             : "لا توجد مشاريع ضمن هذا النطاق",
         color: department.color,
         soft: department.soft,
@@ -630,22 +1264,86 @@ export default function DirectorDashboardPage() {
     [visibleDepartmentPerformance],
   );
 
-  const statusChartData = useMemo(() => {
-    const counts = new Map<Project["status"], number>();
+  const statusChartData = useMemo<DirectorStatusSummary[]>(() => {
+    const projectsByStatus = new Map<DirectorStatusSummary["key"], DirectorProjectReference[]>();
 
     filteredProjects.forEach((project) => {
-      const status = isCompletedProject(project) ? "Completed" : project.status;
-      counts.set(status, (counts.get(status) ?? 0) + 1);
+      const status = (isCompletedProject(project) ? "Completed" : project.status) as DirectorStatusSummary["key"];
+      const current = projectsByStatus.get(status) ?? [];
+      current.push({ id: project.id, title: project.title });
+      projectsByStatus.set(status, current);
     });
 
     return [
-      { name: "نشط", value: counts.get("Active") ?? 0, color: statusPalette.Active },
-      { name: "تخطيط", value: counts.get("Planning") ?? 0, color: statusPalette.Planning },
-      { name: "معلّق", value: counts.get("OnHold") ?? 0, color: statusPalette.OnHold },
-      { name: "مكتمل", value: counts.get("Completed") ?? 0, color: statusPalette.Completed },
-      { name: "ملغي", value: counts.get("Cancelled") ?? 0, color: statusPalette.Cancelled },
+      {
+        key: "Active",
+        name: "نشط",
+        value: projectsByStatus.get("Active")?.length ?? 0,
+        color: statusPalette.Active,
+        projects: projectsByStatus.get("Active") ?? [],
+      },
+      {
+        key: "Planning",
+        name: "تخطيط",
+        value: projectsByStatus.get("Planning")?.length ?? 0,
+        color: statusPalette.Planning,
+        projects: projectsByStatus.get("Planning") ?? [],
+      },
+      {
+        key: "OnHold",
+        name: "معلّق",
+        value: projectsByStatus.get("OnHold")?.length ?? 0,
+        color: statusPalette.OnHold,
+        projects: projectsByStatus.get("OnHold") ?? [],
+      },
+      {
+        key: "Completed",
+        name: "مكتمل",
+        value: projectsByStatus.get("Completed")?.length ?? 0,
+        color: statusPalette.Completed,
+        projects: projectsByStatus.get("Completed") ?? [],
+      },
+      {
+        key: "Cancelled",
+        name: "ملغي",
+        value: projectsByStatus.get("Cancelled")?.length ?? 0,
+        color: statusPalette.Cancelled,
+        projects: projectsByStatus.get("Cancelled") ?? [],
+      },
     ].filter((entry) => entry.value > 0);
   }, [filteredProjects]);
+
+  const statusDistributionGradient = useMemo(() => {
+    if (!statusChartData.length) {
+      return "conic-gradient(#dce8e9 0 100%)";
+    }
+
+    const total = statusChartData.reduce((sum, entry) => sum + entry.value, 0);
+    let cursor = 0;
+
+    const segments = statusChartData.map((entry) => {
+      const start = cursor;
+      const portion = total ? (entry.value / total) * 100 : 0;
+      cursor += portion;
+      return `${entry.color} ${start}% ${cursor}%`;
+    });
+
+    return `conic-gradient(${segments.join(", ")})`;
+  }, [statusChartData]);
+
+  const leadingProjectStatus = useMemo(() => {
+    if (!statusChartData.length) {
+      return null;
+    }
+
+    const total = statusChartData.reduce((sum, entry) => sum + entry.value, 0);
+    const dominant = statusChartData.reduce((top, entry) => (entry.value > top.value ? entry : top), statusChartData[0]);
+
+    return {
+      ...dominant,
+      percent: total ? clampPercentage((dominant.value / total) * 100) : 0,
+    };
+  }, [statusChartData]);
 
   const portfolioTrendData = useMemo(
     () =>
@@ -673,7 +1371,18 @@ export default function DirectorDashboardPage() {
   );
 
   const workloadData = useMemo(() => {
-    const workloadMap = new Map<string, { open: number; critical: number; hours: number; done: number }>();
+    const projectTitleById = new Map(filteredProjects.map((project) => [project.id, project.title]));
+    const workloadMap = new Map<
+      string,
+      {
+        open: number;
+        critical: number;
+        hours: number;
+        done: number;
+        projects: Set<string>;
+        tasks: DirectorWorkloadTaskReference[];
+      }
+    >();
 
     filteredTasks.forEach((task) => {
       const assigneeNames =
@@ -682,13 +1391,28 @@ export default function DirectorDashboardPage() {
           : task.assignedToName
             ? [task.assignedToName]
             : [task.createdByName ?? "النظام"];
+      const projectTitle = projectTitleById.get(task.projectId) ?? "مشروع غير معروف";
 
       assigneeNames.forEach((name) => {
-        const current = workloadMap.get(name) ?? { open: 0, critical: 0, hours: 0, done: 0 };
+        const current = workloadMap.get(name) ?? {
+          open: 0,
+          critical: 0,
+          hours: 0,
+          done: 0,
+          projects: new Set<string>(),
+          tasks: [],
+        };
         current.hours += task.estimatedHours || 0;
         if (task.status === "Done") current.done += 1;
         else current.open += 1;
         if (task.priority === "Critical" || task.priority === "High") current.critical += 1;
+        current.projects.add(projectTitle);
+        current.tasks.push({
+          id: task.id,
+          title: task.title,
+          projectTitle,
+          status: task.status,
+        });
         workloadMap.set(name, current);
       });
     });
@@ -700,11 +1424,13 @@ export default function DirectorDashboardPage() {
         critical: stats.critical,
         hours: stats.hours,
         done: stats.done,
+        projects: Array.from(stats.projects),
+        tasks: stats.tasks.slice(0, 5),
         score: stats.open * 10 + stats.critical * 8 + stats.hours,
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
-  }, [filteredTasks]);
+  }, [filteredProjects, filteredTasks]);
 
   const attentionBoard = useMemo(() => {
     return filteredProjects
@@ -731,81 +1457,170 @@ export default function DirectorDashboardPage() {
       .slice(0, 5);
   }, [filteredProjects, referenceDate, tasksByProjectId]);
 
-  const operationFeed = useMemo<EnrichedOperation[]>(() => {
-    const updates = filteredDetails.flatMap((detail) =>
-      detail.recentUpdates.map((update) => ({
-        id: `update-${update.id}`,
-        title: detail.project.title,
-        subtitle: `${translateUpdateType(update.updateType)} • ${getDepartmentMeta(detail.project).name}`,
-        description: update.content,
-        occurredAt: update.createdAt,
-        tone: getOperationToneFromUpdate(update.updateType),
-      })),
-    );
+  const executiveFeed = useMemo<DirectorExecutiveFeedItem[]>(() => {
+    return filteredDetails
+      .flatMap((detail) =>
+        detail.recentUpdates.map((update) => ({
+          id: `director-update-${update.id}`,
+          projectId: detail.project.id,
+          projectTitle: detail.project.title,
+          content: update.content,
+          updateType: update.updateType,
+          createdByName: update.createdByName,
+          createdAt: update.createdAt,
+        })),
+      )
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  }, [filteredDetails]);
 
-    const tasks = filteredTasks.map((task) => ({
-      id: `task-${task.id}`,
-      title: task.title,
-      subtitle: `${translateTaskStatus(task.status)} • ${
-        filteredProjects.find((project) => project.id === task.projectId)?.title ?? "مشروع"
-      }`,
-      description: task.assignedToName
-        ? `المكلّف: ${task.assignedToName}`
-        : `منشأة بواسطة ${task.createdByName ?? "النظام"}`,
-      occurredAt: task.createdAt,
-      tone: getOperationToneFromTask(task),
-    }));
+  const departmentProjectsDirectory = useMemo(() => {
+    return filteredProjects
+      .map((project) => {
+        const detail = filteredDetails.find((entry) => entry.project.id === project.id);
+        const managerFromMembers = detail?.members.find((member) => {
+          const role = member.roleInProject.trim().toLowerCase();
+          return role.includes("manager") || role.includes("مدير") || role.includes("owner") || role.includes("lead");
+        });
 
-    const fallbackUpdates = (statsQuery.data?.recentUpdates ?? []).map((update) => ({
-      id: `fallback-${update.id}`,
-      title: filteredProjects.find((project) => project.id === update.projectId)?.title ?? "مشروع الدائرة",
-      subtitle: `${translateUpdateType(update.updateType)} • سجل تنفيذي`,
-      description: update.content,
-      occurredAt: update.createdAt,
-      tone: getOperationToneFromUpdate(update.updateType),
-    }));
-
-    return [...updates, ...tasks, ...fallbackUpdates]
-      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
-      .filter((operation, index, collection) => collection.findIndex((entry) => entry.id === operation.id) === index)
-      .slice(0, 8);
-  }, [filteredDetails, filteredProjects, filteredTasks, statsQuery.data?.recentUpdates]);
-
-  const recentOperationCount = useMemo(() => {
-    const today = new Date();
-    return operationFeed.filter((item) => {
-      const occurred = new Date(item.occurredAt);
-      return (
-        occurred.getFullYear() === today.getFullYear() &&
-        occurred.getMonth() === today.getMonth() &&
-        occurred.getDate() === today.getDate()
-      );
-    }).length;
-  }, [operationFeed]);
-
-  const selectedDepartmentMeta = selectedDepartment === "all"
-    ? null
-    : departmentCatalog.find((department) => department.id === selectedDepartment) ?? null;
+        return {
+          id: project.id,
+          title: project.title,
+          startDate: project.startDate,
+          endDate: project.endDate,
+          managerName: project.projectManagerName || managerFromMembers?.userName || "غير محدد",
+          departmentName: project.responsibleDepartmentName || "قسم غير محدد",
+        };
+      })
+      .sort((left, right) => new Date(left.startDate).getTime() - new Date(right.startDate).getTime());
+  }, [filteredDetails, filteredProjects]);
 
   const activeDepartmentTab = useMemo(
     () => departmentTabs.find((tab) => tab.key === selectedDepartment) ?? departmentTabs[0],
     [departmentTabs, selectedDepartment],
   );
+  const activeAsideTab = useMemo(
+    () => directorAsideTabs.find((tab) => tab.key === directorAsideView) ?? directorAsideTabs[0],
+    [directorAsideView],
+  );
+  const ActiveAsideIcon = activeAsideTab.icon;
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    return hour >= 5 && hour < 12 ? "صباح المتابعة" : "مساء المتابعة";
-  }, []);
+  const calendarDays = useMemo(() => buildCalendarCells(calendarMonth), [calendarMonth]);
+  const selectedCalendarDateKey = getDateKey(selectedCalendarDate);
+  const calendarHeading = getCalendarDateLabel(selectedCalendarDate);
+  const calendarMonthHeading = getCalendarDateLabel(calendarMonth);
+
+  const directorScheduleItems = useMemo<DirectorScheduleItem[]>(() => {
+    const projectEvents = filteredProjects.flatMap((project) => {
+      const events: DirectorScheduleItem[] = [];
+      const startDateKey = getDateKeyFromValue(project.startDate);
+      const endDateKey = getDateKeyFromValue(project.endDate);
+      const accent = getDirectorProjectAccent(project.type);
+
+      if (startDateKey) {
+        events.push({
+          id: `director-project-start-${project.id}`,
+          title: project.title,
+          subtitle: "بداية المشروع",
+          time: "طوال اليوم",
+          timeMinutes: null,
+          dateKey: startDateKey,
+          accent,
+          sortValue: 9 * 60,
+          note: getDepartmentMeta(project).name,
+        });
+      }
+
+      if (endDateKey) {
+        events.push({
+          id: `director-project-end-${project.id}`,
+          title: project.title,
+          subtitle: "الموعد المخطط للانتهاء",
+          time: "طوال اليوم",
+          timeMinutes: null,
+          dateKey: endDateKey,
+          accent: isCompletedProject(project) ? "teal" : "amber",
+          sortValue: 16 * 60,
+          note: `نسبة الإنجاز ${percentage(project.progressPercent)}`,
+        });
+      }
+
+      return events;
+    });
+
+    const customEvents = manualCalendarEvents.map((event) => {
+      const timeMinutes = parseTimeValueToMinutes(event.time) ?? 9 * 60;
+
+      return {
+        id: `director-calendar-${event.id}`,
+        title: event.title,
+        subtitle: translateCalendarEventType(event.type),
+        time: formatMinutesAsArabicTime(timeMinutes),
+        timeMinutes,
+        dateKey: event.dateKey,
+        accent: getCalendarEventAccent(event.type),
+        sortValue: timeMinutes,
+        note: "حدث تمت إضافته من صفحة مدير الدائرة",
+      } satisfies DirectorScheduleItem;
+    });
+
+    return [...projectEvents, ...customEvents].sort((left, right) => {
+      return left.dateKey.localeCompare(right.dateKey) || left.sortValue - right.sortValue || left.title.localeCompare(right.title);
+    });
+  }, [filteredProjects, manualCalendarEvents]);
+
+  const calendarEventsByDay = useMemo(() => {
+    return directorScheduleItems.reduce((map, item) => {
+      const current = map.get(item.dateKey) ?? [];
+      current.push(item);
+      map.set(item.dateKey, current);
+      return map;
+    }, new Map<string, DirectorScheduleItem[]>());
+  }, [directorScheduleItems]);
+
+  const selectedDateEvents = useMemo(
+    () => calendarEventsByDay.get(selectedCalendarDateKey) ?? [],
+    [calendarEventsByDay, selectedCalendarDateKey],
+  );
+
+  const handleCalendarMonthChange = (direction: -1 | 1) => {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  };
+
+  const handleCalendarDateSelect = (date: Date) => {
+    setSelectedCalendarDate(date);
+    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+  };
+
+  const handleAddCalendarEvent = () => {
+    const title = calendarEventTitle.trim();
+    if (!title) {
+      return;
+    }
+
+    setManualCalendarEvents((current) => [
+      {
+        id: Date.now(),
+        title,
+        dateKey: selectedCalendarDateKey,
+        time: calendarEventTime,
+        type: calendarEventType,
+      },
+      ...current,
+    ]);
+    setCalendarEventTitle("");
+    setIsCalendarEventComposerOpen(false);
+  };
 
   return (
     <div dir="rtl" className="h-screen overflow-hidden bg-[#f7fbfb]">
-      <section
-        className="m-2 h-[calc(100vh-1rem)] overflow-y-auto overscroll-contain rounded-[34px] bg-[#eef7f8] px-5 pb-10 sm:px-6 lg:px-8"
-        onScroll={(event) => {
-          const nextState = event.currentTarget.scrollTop > 8;
-          setIsScrolled((current) => (current === nextState ? current : nextState));
-        }}
-      >
+      <div className="flex h-screen w-full overflow-hidden bg-[#f7fbfb]">
+        <section
+          className="order-last m-2 h-[calc(100vh-1rem)] min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-[34px] bg-[#eef7f8] px-5 pb-10 sm:px-6 lg:px-8"
+          onScroll={(event) => {
+            const nextState = event.currentTarget.scrollTop > 8;
+            setIsScrolled((current) => (current === nextState ? current : nextState));
+          }}
+        >
         <header
           className={cn(
             "sticky top-3 z-30 mt-3 flex flex-col gap-4 rounded-[30px] px-5 py-4 transition-all duration-300 lg:flex-row lg:items-center lg:justify-between",
@@ -814,6 +1629,16 @@ export default function DirectorDashboardPage() {
               : "bg-transparent shadow-none backdrop-blur-0",
           )}
         >
+          <button
+            type="button"
+            onClick={() => setIsAsideCollapsed((current) => !current)}
+            title={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+            aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+          >
+            {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+
           <div className="flex flex-wrap items-center justify-end gap-3">
             <Link
               href="/dashboard"
@@ -865,34 +1690,16 @@ export default function DirectorDashboardPage() {
                 <Layers className="h-4 w-4" />
                 مركز قيادة الدائرة
               </div>
-              <div className="mt-5 flex items-center gap-3 text-[#11272c]">
-                <Sun className="h-8 w-8 text-[#f0b819]" />
-                <div>
-                  <p className="text-[14px] font-semibold text-[#6c7c82]">{greeting}</p>
-                  <h1 className="text-[38px] font-semibold tracking-[-0.06em] text-[#12262b] lg:text-[46px]">
-                    لوحة إشراف شاملة على الأقسام والمشاريع
-                  </h1>
-                </div>
-              </div>
-              <p className="mt-4 max-w-3xl text-[15px] leading-8 text-[#6c7c82]">
-                مراقبة مباشرة لسير المشاريع، ضغط المهام، استهلاك الميزانيات، وحركة التحديثات التنفيذية عبر جميع الأقسام
-                من نقطة تحكم واحدة.
-              </p>
-
-              <div className="mt-6 inline-flex items-center gap-3 rounded-[24px] bg-white/88 px-4 py-3 shadow-[0_18px_34px_-28px_rgba(12,54,58,0.24)]">
-                <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[linear-gradient(145deg,#0d2f34,#5c6e74)] text-[13px] font-semibold text-white">
-                  {getInitials(currentUser.name)}
-                </div>
-                <div className="text-right">
-                  <p className="text-[14px] font-semibold text-[#173036]">{currentUser.name}</p>
-                  <p className="mt-1 text-[12px] text-[#7a8a8f]">{translateUserRole(currentUser.role)}</p>
-                </div>
+              <div className="mt-5 text-[#11272c]">
+                <h1 className="text-[38px] font-semibold tracking-[-0.06em] text-[#12262b] lg:text-[46px]">
+                  لوحة إشراف شاملة على الأقسام والمشاريع
+                </h1>
               </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-[28px] bg-white/88 p-5 shadow-[0_22px_48px_-34px_rgba(12,54,58,0.24)]">
-                <p className="text-[12px] font-semibold text-[#7d8b90]">ميزانية المحفظة</p>
+                <p className="text-[12px] font-semibold text-[#7d8b90]">ميزانية المشاريع</p>
                 <p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-[#15242a]">
                   {formatCurrency(totalBudget)}
                 </p>
@@ -907,7 +1714,15 @@ export default function DirectorDashboardPage() {
                 </p>
               </div>
 
-              <div className="rounded-[28px] bg-[#11272c] p-5 text-white shadow-[0_26px_56px_-38px_rgba(10,76,74,0.34)]">
+              <div className="relative rounded-[28px] bg-[#11272c] p-5 text-white shadow-[0_26px_56px_-38px_rgba(10,76,74,0.34)]">
+                <Link
+                  href="#attention-board"
+                  title="الانتقال إلى لوحة التنبيهات"
+                  aria-label="الانتقال إلى لوحة التنبيهات"
+                  className="absolute left-5 top-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#11272c] transition hover:bg-[#f4f7f8]"
+                >
+                  <ArrowLeft className="h-4 w-4 text-black" />
+                </Link>
                 <p className="text-[12px] font-semibold text-white/70">المشهد التنفيذي</p>
                 <p className="mt-3 text-[30px] font-semibold tracking-[-0.05em]">{attentionBoard.length}</p>
                 <p className="mt-2 text-[13px] leading-6 text-white/75">
@@ -919,27 +1734,6 @@ export default function DirectorDashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-[28px] bg-white/88 p-5 shadow-[0_22px_48px_-34px_rgba(12,54,58,0.24)]">
-                <p className="text-[12px] font-semibold text-[#7d8b90]">الأعضاء الفعّالون</p>
-                <div className="mt-3 flex items-end gap-3">
-                  <p className="text-[28px] font-semibold tracking-[-0.04em] text-[#15242a]">{allMembers.length}</p>
-                  <span className="mb-1 text-[12px] font-semibold text-[#0d7573]">عبر جميع المشاريع</span>
-                </div>
-                <p className="mt-3 text-[13px] leading-6 text-[#708086]">
-                  {selectedDepartmentMeta ? `العرض الحالي يركز على ${selectedDepartmentMeta.name}.` : "الرؤية الحالية تغطي كل الأقسام والمبادرات."}
-                </p>
-              </div>
-
-              <div className="rounded-[28px] bg-white/88 p-5 shadow-[0_22px_48px_-34px_rgba(12,54,58,0.24)]">
-                <p className="text-[12px] font-semibold text-[#7d8b90]">حركة اليوم</p>
-                <div className="mt-3 flex items-end gap-3">
-                  <p className="text-[28px] font-semibold tracking-[-0.04em] text-[#15242a]">{recentOperationCount}</p>
-                  <span className="mb-1 text-[12px] font-semibold text-[#ef7c61]">عملية مسجلة اليوم</span>
-                </div>
-                <p className="mt-3 text-[13px] leading-6 text-[#708086]">
-                  تحديثات ومهام جديدة دخلت في سجل العمليات التنفيذية خلال اليوم الحالي.
-                </p>
-              </div>
             </div>
           </div>
 
@@ -982,56 +1776,49 @@ export default function DirectorDashboardPage() {
           </div>
         </motion.section>
 
-        <section className="mt-8 overflow-hidden rounded-[34px] border border-white/80 bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)] shadow-[0_28px_60px_-42px_rgba(12,54,58,0.24)]">
-          <div className="bg-transparent px-3 pt-4 sm:px-6">
-            <div className="flex justify-start overflow-x-auto">
-              <div className="flex min-w-max items-end gap-1 pe-3">
-                {departmentTabs.map((tab) => {
-                  const active = selectedDepartment === tab.key;
-                  const accentColor = tab.key === "all" ? "#11272c" : tab.color;
+        <section className="mt-8 rounded-[34px] border border-white/80 bg-white/72 p-4 shadow-[0_28px_58px_-40px_rgba(12,54,58,0.18)] backdrop-blur-xl sm:p-5">
+          <div className="overflow-x-auto border-b border-[#dce7e8]">
+            <ul className="-mb-px flex min-w-max flex-nowrap gap-1 text-sm font-medium text-[#7a8a8f]">
+              {departmentTabs.map((tab) => {
+                const active = selectedDepartment === tab.key;
+                const accentColor = tab.key === "all" ? "#11272c" : tab.color;
+                const TabIcon = tab.key === "all" ? Layers : FolderKanban;
 
-                  return (
+                return (
+                  <li key={String(tab.key)} className="shrink-0">
                     <button
-                      key={String(tab.key)}
                       type="button"
                       onClick={() => setSelectedDepartment(tab.key)}
                       title={tab.hint}
                       className={cn(
-                        "group relative z-10 flex items-center gap-2 px-5 py-3 text-right transition-all duration-300",
+                        "group inline-flex items-center justify-center gap-2 rounded-t-[20px] border-b-2 px-4 py-4 text-[14px] font-semibold transition",
                         active
-                          ? "-mb-px rounded-t-[18px] border-x border-t border-[#dbe7e8] bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)] text-[#12262b] shadow-[0_16px_30px_-26px_rgba(12,54,58,0.14)]"
-                          : "rounded-t-[16px] text-[#8aa0a7] hover:bg-white/42 hover:text-[#172228]",
+                          ? "bg-white text-[#111517] shadow-[0_16px_30px_-24px_rgba(12,54,58,0.16)]"
+                          : "border-transparent text-[#7a8a8f] hover:text-[#172228]",
                       )}
+                      style={active ? { borderBottomColor: accentColor } : undefined}
                     >
-                      {active && (
-                        <>
-                          <span
-                            className="absolute inset-x-3 top-0 h-[3px] rounded-full"
-                            style={{ backgroundColor: accentColor }}
-                          />
-                          <span className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)]" />
-                        </>
-                      )}
-                      <span className={cn("truncate text-[15px] font-semibold", active ? "text-[#12262b]" : "text-current")}>
-                        {tab.label}
-                      </span>
+                      <TabIcon
+                        className={cn("h-4 w-4 transition", active ? "text-current" : "text-[#97a6ab] group-hover:text-[#172228]")}
+                      />
+                      <span className="whitespace-nowrap">{tab.label}</span>
                       <span
                         className={cn(
-                          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold transition",
-                          active ? "text-white shadow-[0_10px_18px_-14px_rgba(12,54,58,0.2)]" : "bg-white/88 text-[#708086]",
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold transition",
+                          active ? "text-white" : "bg-[#eef4f5] text-[#718287]",
                         )}
                         style={active ? { backgroundColor: accentColor } : undefined}
                       >
                         {tab.projectCount}
                       </span>
                     </button>
-                  );
-                })}
-              </div>
-            </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
 
-          <div className="p-5 pt-8 sm:p-6 sm:pt-10">
+          <div className="bg-white px-5 py-6 sm:px-6 sm:py-7">
             <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <span
@@ -1042,7 +1829,7 @@ export default function DirectorDashboardPage() {
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: selectedDepartment === "all" ? "#11272c" : activeDepartmentTab.color }}
                   />
-                  {selectedDepartment === "all" ? "عرض موحد للدائرة" : "القسم المحدد"}
+                  {selectedDepartment === "all" ? "نظرة شاملة" : "القسم المحدد"}
                 </span>
                 <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.05em] text-[#12262b]">
                   {activeDepartmentTab.label}
@@ -1056,7 +1843,7 @@ export default function DirectorDashboardPage() {
 
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#173036] shadow-[0_14px_24px_-20px_rgba(12,54,58,0.16)]">
-                  {activeDepartmentTab.projectCount} مشروع
+                  {formatProjectCountLabel(activeDepartmentTab.projectCount)}
                 </span>
                 <span className="rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#173036] shadow-[0_14px_24px_-20px_rgba(12,54,58,0.16)]">
                   {activeDepartmentTab.members} عضو
@@ -1073,11 +1860,97 @@ export default function DirectorDashboardPage() {
               </div>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-              <div className="space-y-6">
-                <DirectorSection
-              title="نبض المحفظة الزمنية"
+            <DirectorSection
+              className="mb-6"
+              title="مشاريع القسم"
+              subtitle="يعرض اسم المشروع، تاريخ البداية، تاريخ الانتهاء، واسم المسؤول المباشر."
+              action={
+                <div className="flex items-center gap-2 self-start">
+                  <span className="inline-flex items-center rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
+                    {formatProjectCountLabel(departmentProjectsDirectory.length)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsDepartmentProjectsCollapsed((current) => !current)}
+                    title={isDepartmentProjectsCollapsed ? "توسيع القسم" : "طي القسم"}
+                    aria-label={isDepartmentProjectsCollapsed ? "توسيع القسم" : "طي القسم"}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#f4f7f8] text-[#617278] transition hover:bg-[#eaf1f2] hover:text-[#172228]"
+                  >
+                    <ChevronDown className={cn("h-4 w-4 transition-transform", isDepartmentProjectsCollapsed && "rotate-180")} />
+                  </button>
+                </div>
+              }
+            >
+              {!isDepartmentProjectsCollapsed ? (
+                departmentProjectsDirectory.length ? (
+                <div className="overflow-hidden rounded-[26px] border border-[#e7eeef] bg-[#fbfdfd]">
+                  <div className="hidden grid-cols-[minmax(0,1.6fr)_0.85fr_0.85fr_1fr] gap-4 border-b border-[#e7eeef] bg-[#f5f9f9] px-5 py-4 text-[12px] font-bold text-[#6b7c81] md:grid">
+                    <span>المشروع</span>
+                    <span>تاريخ البداية</span>
+                    <span>تاريخ الانتهاء</span>
+                    <span>المسؤول</span>
+                  </div>
+
+                  <div className="divide-y divide-[#edf2f3]">
+                    {departmentProjectsDirectory.map((project) => (
+                      <Link
+                        key={project.id}
+                        href={`/projects/${project.id}`}
+                        className="block px-5 py-4 transition hover:bg-[#f8fbfb]"
+                      >
+                        <div className="hidden items-center gap-4 md:grid md:grid-cols-[minmax(0,1.6fr)_0.85fr_0.85fr_1fr]">
+                          <div className="min-w-0">
+                            <p className="truncate text-[14px] font-bold text-[#172228]">{project.title}</p>
+                            {selectedDepartment === "all" ? (
+                              <p className="mt-1 text-[12px] text-[#7c8b90]">{project.departmentName}</p>
+                            ) : null}
+                          </div>
+                          <span className="text-[13px] font-semibold text-[#5f7075]">{formatDate(project.startDate)}</span>
+                          <span className="text-[13px] font-semibold text-[#5f7075]">{formatDate(project.endDate)}</span>
+                          <span className="truncate text-[13px] font-semibold text-[#172228]">{project.managerName}</span>
+                        </div>
+
+                        <div className="space-y-3 md:hidden">
+                          <div>
+                            <p className="text-[14px] font-bold text-[#172228]">{project.title}</p>
+                            {selectedDepartment === "all" ? (
+                              <p className="mt-1 text-[12px] text-[#7c8b90]">{project.departmentName}</p>
+                            ) : null}
+                          </div>
+                          <div className="grid gap-2 text-[12px] text-[#617278] sm:grid-cols-3">
+                            <div className="rounded-[18px] bg-[#f5f9f9] px-3 py-2">
+                              <p className="font-bold text-[#7a8a8f]">البداية</p>
+                              <p className="mt-1 font-semibold text-[#172228]">{formatDate(project.startDate)}</p>
+                            </div>
+                            <div className="rounded-[18px] bg-[#f5f9f9] px-3 py-2">
+                              <p className="font-bold text-[#7a8a8f]">الانتهاء</p>
+                              <p className="mt-1 font-semibold text-[#172228]">{formatDate(project.endDate)}</p>
+                            </div>
+                            <div className="rounded-[18px] bg-[#f5f9f9] px-3 py-2">
+                              <p className="font-bold text-[#7a8a8f]">المسؤول</p>
+                              <p className="mt-1 font-semibold text-[#172228]">{project.managerName}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+                ) : (
+                  <DirectorEmptyState message="لا توجد مشاريع ضمن القسم المحدد في نطاق السنة الحالية." />
+                )
+              ) : (
+                <div className="rounded-[24px] border border-dashed border-[#d9e7e8] bg-[#f9fcfc] px-5 py-6 text-center text-[14px] text-[#7d8b91]">
+                  تم طي هذا القسم.
+                </div>
+              )}
+            </DirectorSection>
+
+            <DirectorSection
+              className="mb-6"
+              title="الحركة الزمنية للمشاريع"
               subtitle="مقارنة بين المشاريع النشطة والبدايات والتسليمات خلال أشهر السنة."
+              collapsible
               action={
                 <span className="inline-flex items-center rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
                   سنة {selectedYear}
@@ -1135,8 +2008,282 @@ export default function DirectorDashboardPage() {
             </DirectorSection>
 
             <DirectorSection
+              className="mb-6"
+              title="حركة المهام عبر الأقسام"
+              subtitle="تجميع لحظي لمراحل المهام داخل كل قسم لمعرفة أين تتكدس الأعمال."
+              collapsible
+            >
+              {taskFlowData.length ? (
+                <div className="h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={taskFlowData} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
+                      <CartesianGrid stroke="#e0e8e9" strokeDasharray="4 4" vertical={false} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} />
+                      <YAxis tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "18px",
+                          border: "1px solid rgba(228,236,237,1)",
+                          boxShadow: "0 22px 42px -32px rgba(12,54,58,0.24)",
+                          direction: "rtl",
+                        }}
+                      />
+                      <Bar dataKey="جديدة" stackId="tasks" fill={taskPalette.Todo} radius={[10, 10, 0, 0]} />
+                      <Bar dataKey="قيد التنفيذ" stackId="tasks" fill={taskPalette.InProgress} />
+                      <Bar dataKey="مراجعة" stackId="tasks" fill={taskPalette.Review} />
+                      <Bar dataKey="منتهية" stackId="tasks" fill={taskPalette.Done} />
+                      <Bar dataKey="متعثرة" stackId="tasks" fill={taskPalette.Blocked} radius={[10, 10, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <DirectorEmptyState message="لا توجد مهام كافية لرسم حركة تشغيلية واضحة بين الأقسام." />
+              )}
+            </DirectorSection>
+
+            <div className="space-y-8">
+              <div className="grid items-start gap-8 xl:grid-cols-2">
+                <DirectorSection
+                  className="h-full"
+                  title="صحة المشاريع"
+                  subtitle="مؤشر سريع يدمج الإنجاز العام، إغلاق المهام، ومستوى المخاطر."
+                  collapsible
+                >
+              <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr] xl:grid-cols-[0.88fr_1.12fr]">
+                <div className="rounded-[28px] bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)] p-5 text-center">
+                  <div
+                    className="relative mx-auto h-44 w-44 rounded-full"
+                    style={{
+                      background: `conic-gradient(#0d7573 0 ${portfolioHealth}%, #dce8e9 ${portfolioHealth}% 100%)`,
+                    }}
+                  >
+                    <div className="absolute inset-[16px] rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(223,234,235,0.9)]" />
+                    <div className="absolute inset-0 grid place-items-center">
+                      <div>
+                        <p className="text-[12px] font-semibold text-[#7b8b90]">صحة المشاريع</p>
+                        <p className="mt-2 text-[34px] font-semibold tracking-[-0.05em] text-[#12262b]">
+                          {portfolioHealth}
+                        </p>
+                        <p className="text-[12px] font-semibold text-[#0d7573]">من 100</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {[
+                    {
+                      label: "معدل الإنجاز العام",
+                      value: averageProgress,
+                      tone: "#0d7573",
+                    },
+                    {
+                      label: "كفاءة إغلاق المهام",
+                      value: filteredTasks.length ? clampPercentage((doneTasksCount / filteredTasks.length) * 100) : 0,
+                      tone: "#27b287",
+                    },
+                    {
+                      label: "استهلاك الميزانية",
+                      value: budgetUtilization,
+                      tone: "#5c6bd8",
+                    },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-[22px] bg-[#f9fcfc] px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[13px] font-semibold text-[#5e7277]">{item.label}</p>
+                        <span className="text-[14px] font-semibold text-[#12262b]">{percentage(item.value)}</span>
+                      </div>
+                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#e4ecee]">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${item.value}%`, backgroundColor: item.tone }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+                </DirectorSection>
+
+                <DirectorSection
+                  className="h-full"
+                  title="توزيع حالة المشاريع"
+                  subtitle="كيف تتوزع المبادرات الحالية بين التخطيط والتنفيذ والإغلاق."
+                  collapsible
+                >
+              {statusChartData.length ? (
+                <div className="grid gap-5 lg:grid-cols-[0.82fr_1.18fr] xl:grid-cols-[0.78fr_1.22fr]">
+                  <div className="rounded-[28px] bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)] p-5 text-center">
+                    <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: statusDistributionGradient }}>
+                      <div className="absolute inset-[16px] rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(223,234,235,0.9)]" />
+                      <div className="absolute inset-0 grid place-items-center">
+                        <div>
+                          <p className="text-[12px] font-semibold text-[#7b8b90]">إجمالي المشاريع</p>
+                          <p className="mt-2 text-[34px] font-semibold tracking-[-0.05em] text-[#12262b]">
+                            {filteredProjects.length}
+                          </p>
+                          <p className="text-[12px] font-semibold" style={{ color: leadingProjectStatus?.color ?? "#0d7573" }}>
+                            {leadingProjectStatus ? `الأكثر: ${leadingProjectStatus.name}` : "مشروع"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {statusChartData.map((status) => (
+                      <div key={status.name} className="flex items-center justify-between rounded-[22px] bg-[#f8fbfb] px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: status.color }} />
+                          <span className="text-[13px] font-semibold text-[#223238]">{status.name}</span>
+                          <DirectorInlinePopover
+                            label={`عرض مشاريع حالة ${status.name}`}
+                            title={`المشاريع ضمن حالة ${status.name}`}
+                          >
+                            {status.projects.map((project) => (
+                              <p key={project.id} className="rounded-[14px] bg-[#f8fbfb] px-3 py-2 font-semibold text-[#223238]">
+                                {project.title}
+                              </p>
+                            ))}
+                          </DirectorInlinePopover>
+                        </div>
+                        <div className="text-left">
+                          <p className="text-[14px] font-semibold text-[#12262b]">{status.value}</p>
+                          <p className="text-[11px] font-semibold text-[#7b8b90]">
+                            {percentage(filteredProjects.length ? (status.value / filteredProjects.length) * 100 : 0)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <DirectorEmptyState message="لا يوجد توزيع حالات متاح بعد ضمن هذا النطاق." />
+              )}
+                </DirectorSection>
+              </div>
+
+              <div className="grid items-start gap-8 xl:grid-cols-2">
+                <DirectorSection
+                  className="h-full"
+                  title="الموظفين والمهام"
+                  subtitle="أعلى الأعضاء انشغالاً حالياً بناءً على المهام المفتوحة والمهام الحرجة."
+                  collapsible
+                >
+                  {workloadData.length ? (
+                    <div className="space-y-3">
+                      {workloadData.map((member) => (
+                        <div key={member.name} className="rounded-[24px] bg-[#f9fcfc] px-4 py-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="text-[15px] font-semibold text-[#172228]">{member.name}</p>
+                              <p className="mt-1 text-[12px] text-[#7e8c91]">
+                                {member.open} مفتوحة • {member.critical} حرجة • {member.done} منتهية
+                              </p>
+                            </div>
+                            <DirectorInlinePopover
+                              align="left"
+                              label={`عرض تفاصيل ${member.name}`}
+                              title={`تفاصيل ${member.name}`}
+                            >
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-[11px] font-bold text-[#7b8b90]">المشاريع</p>
+                                  <div className="mt-2 space-y-2">
+                                    {member.projects.map((project) => (
+                                      <p key={`${member.name}-${project}`} className="rounded-[14px] bg-[#f8fbfb] px-3 py-2 font-semibold text-[#223238]">
+                                        {project}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-[11px] font-bold text-[#7b8b90]">المهام</p>
+                                  <div className="mt-2 space-y-2">
+                                    {member.tasks.map((task) => (
+                                      <div key={task.id} className="rounded-[14px] bg-[#f8fbfb] px-3 py-2">
+                                        <p className="font-semibold text-[#223238]">{task.title}</p>
+                                        <p className="mt-1 text-[11px] text-[#6f8085]">
+                                          {task.projectTitle} • {translateTaskStatus(task.status)}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </DirectorInlinePopover>
+                          </div>
+                          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#e4ecee]">
+                            <div
+                              className="h-full rounded-full bg-[linear-gradient(90deg,#0d7573_0%,#5c6bd8_100%)]"
+                              style={{ width: `${Math.min(100, member.score)}%` }}
+                            />
+                          </div>
+                          <p className="mt-2 text-[12px] text-[#7e8c91]">{member.hours} ساعة تقديرية ضمن النطاق الحالي</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <DirectorEmptyState message="لا توجد بيانات تكليف كافية لقياس حمل الأعضاء حالياً." />
+                  )}
+                </DirectorSection>
+
+                <DirectorSection
+                  className="h-full"
+                  id="attention-board"
+                  title="لوحة التنبيهات"
+                  subtitle="العناصر التي تتطلب تدخلاً تنفيذياً أو إعادة ترتيب أولويات."
+                  collapsible
+                  action={
+                    <span className="inline-flex items-center rounded-full bg-[#fff1ec] px-3 py-1 text-[12px] font-semibold text-[#cf6247]">
+                      {formatArabicNumber(attentionBoard.length)} حالة مراقبة
+                    </span>
+                  }
+                >
+              {attentionBoard.length ? (
+                <div className="space-y-3">
+                  {attentionBoard.map((project) => (
+                    <div key={project.id} className="rounded-[24px] border border-[#edf2f3] bg-[#fbfdfd] px-4 py-4 shadow-[0_18px_30px_-30px_rgba(12,54,58,0.2)]">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-[15px] font-semibold text-[#172228]">{project.title}</p>
+                          <p className="mt-1 text-[12px] text-[#819095]">{project.department}</p>
+                        </div>
+                        <div
+                          className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
+                          style={{ backgroundColor: project.tone }}
+                        >
+                          خطورة {project.riskScore}
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2 text-[12px]">
+                        <span className="rounded-full bg-[#fff8df] px-3 py-1 font-semibold text-[#b88900]">
+                          متأخرة {project.overdue}
+                        </span>
+                        <span className="rounded-full bg-[#fff1ec] px-3 py-1 font-semibold text-[#cf6247]">
+                          متعثرة {project.blocked}
+                        </span>
+                        <span className="rounded-full bg-[#eef4ff] px-3 py-1 font-semibold text-[#5c6bd8]">
+                          ينتهي {project.dueDate}
+                        </span>
+                      </div>
+                      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#e5ecec]">
+                        <div className="h-full rounded-full bg-[linear-gradient(90deg,#0d7573_0%,#2db6b2_100%)]" style={{ width: `${project.progress}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <DirectorEmptyState message="لا توجد حالات حرجة حالياً، وضع المشاريع مستقر ضمن هذا النطاق." />
+              )}
+                </DirectorSection>
+              </div>
+            </div>
+
+            <DirectorSection
+              className="mb-6 mt-8"
               title="أداء الأقسام"
               subtitle="مقارنة مستوى الإنجاز والحمل التشغيلي بين الأقسام التابعة للدائرة."
+              collapsible
             >
               {visibleDepartmentPerformance.length ? (
                 <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -1153,7 +2300,7 @@ export default function DirectorDashboardPage() {
                               <p className="text-[15px] font-semibold text-[#172228]">{department.name}</p>
                             </div>
                             <p className="mt-2 text-[12px] text-[#819095]">
-                              {department.projectCount} مشروع • {department.members} عضو • {department.completedCount} مكتمل
+                              {formatProjectCountLabel(department.projectCount)} • {formatArabicNumber(department.members)} عضو • {formatArabicNumber(department.completedCount)} مكتمل
                             </p>
                           </div>
                           <div className="rounded-full px-3 py-1 text-[12px] font-semibold" style={{ backgroundColor: department.soft, color: department.deep }}>
@@ -1207,289 +2354,47 @@ export default function DirectorDashboardPage() {
               )}
             </DirectorSection>
 
-            <DirectorSection
-              title="حركة المهام عبر الأقسام"
-              subtitle="تجميع لحظي لمراحل المهام داخل كل قسم لمعرفة أين تتكدس الأعمال."
-            >
-              {taskFlowData.length ? (
-                <div className="h-[360px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={taskFlowData} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
-                      <CartesianGrid stroke="#e0e8e9" strokeDasharray="4 4" vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: "18px",
-                          border: "1px solid rgba(228,236,237,1)",
-                          boxShadow: "0 22px 42px -32px rgba(12,54,58,0.24)",
-                          direction: "rtl",
-                        }}
-                      />
-                      <Bar dataKey="جديدة" stackId="tasks" fill={taskPalette.Todo} radius={[10, 10, 0, 0]} />
-                      <Bar dataKey="قيد التنفيذ" stackId="tasks" fill={taskPalette.InProgress} />
-                      <Bar dataKey="مراجعة" stackId="tasks" fill={taskPalette.Review} />
-                      <Bar dataKey="منتهية" stackId="tasks" fill={taskPalette.Done} />
-                      <Bar dataKey="متعثرة" stackId="tasks" fill={taskPalette.Blocked} radius={[10, 10, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <DirectorEmptyState message="لا توجد مهام كافية لرسم حركة تشغيلية واضحة بين الأقسام." />
-              )}
-            </DirectorSection>
-              </div>
-
-              <div className="space-y-6">
-                <DirectorSection
-              title="صحة المحفظة"
-              subtitle="مؤشر سريع يدمج الإنجاز العام، إغلاق المهام، ومستوى المخاطر."
-            >
-              <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr] xl:grid-cols-1">
-                <div className="rounded-[28px] bg-[linear-gradient(180deg,#f8fcfc_0%,#eef7f8_100%)] p-5 text-center">
-                  <div
-                    className="relative mx-auto h-44 w-44 rounded-full"
-                    style={{
-                      background: `conic-gradient(#0d7573 0 ${portfolioHealth}%, #dce8e9 ${portfolioHealth}% 100%)`,
-                    }}
-                  >
-                    <div className="absolute inset-[16px] rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(223,234,235,0.9)]" />
-                    <div className="absolute inset-0 grid place-items-center">
-                      <div>
-                        <p className="text-[12px] font-semibold text-[#7b8b90]">صحة المحفظة</p>
-                        <p className="mt-2 text-[34px] font-semibold tracking-[-0.05em] text-[#12262b]">
-                          {portfolioHealth}
-                        </p>
-                        <p className="text-[12px] font-semibold text-[#0d7573]">من 100</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {[
-                    {
-                      label: "معدل الإنجاز العام",
-                      value: averageProgress,
-                      tone: "#0d7573",
-                    },
-                    {
-                      label: "كفاءة إغلاق المهام",
-                      value: filteredTasks.length ? clampPercentage((doneTasksCount / filteredTasks.length) * 100) : 0,
-                      tone: "#27b287",
-                    },
-                    {
-                      label: "استهلاك الميزانية",
-                      value: budgetUtilization,
-                      tone: "#5c6bd8",
-                    },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-[22px] bg-[#f9fcfc] px-4 py-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[13px] font-semibold text-[#5e7277]">{item.label}</p>
-                        <span className="text-[14px] font-semibold text-[#12262b]">{percentage(item.value)}</span>
-                      </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#e4ecee]">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${item.value}%`, backgroundColor: item.tone }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-                </DirectorSection>
-
-                <DirectorSection
-              title="توزيع حالة المشاريع"
-              subtitle="كيف تتوزع المبادرات الحالية بين التخطيط والتنفيذ والإغلاق."
-            >
-              {statusChartData.length ? (
-                <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr] xl:grid-cols-1">
-                  <div className="relative h-[260px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={statusChartData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={72}
-                          outerRadius={104}
-                          paddingAngle={4}
-                        >
-                          {statusChartData.map((entry) => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: "18px",
-                            border: "1px solid rgba(228,236,237,1)",
-                            boxShadow: "0 22px 42px -32px rgba(12,54,58,0.24)",
-                            direction: "rtl",
-                          }}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                      <div className="text-center">
-                        <p className="text-[12px] font-semibold text-[#7b8b90]">إجمالي المحفظة</p>
-                        <p className="mt-2 text-[30px] font-semibold tracking-[-0.05em] text-[#12262b]">
-                          {filteredProjects.length}
-                        </p>
-                        <p className="text-[12px] text-[#0d7573]">مشروع</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {statusChartData.map((status) => (
-                      <div key={status.name} className="flex items-center justify-between rounded-[22px] bg-[#f8fbfb] px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: status.color }} />
-                          <span className="text-[13px] font-semibold text-[#223238]">{status.name}</span>
-                        </div>
-                        <span className="text-[14px] font-semibold text-[#12262b]">{status.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <DirectorEmptyState message="لا يوجد توزيع حالات متاح بعد ضمن هذا النطاق." />
-              )}
-                </DirectorSection>
-
-                <DirectorSection
-              title="لوحة التنبيهات"
-              subtitle="العناصر التي تتطلب تدخلاً تنفيذياً أو إعادة ترتيب أولويات."
-              action={
-                <span className="inline-flex items-center rounded-full bg-[#fff1ec] px-3 py-1 text-[12px] font-semibold text-[#cf6247]">
-                  {attentionBoard.length} حالة مراقبة
-                </span>
-              }
-            >
-              {attentionBoard.length ? (
-                <div className="space-y-3">
-                  {attentionBoard.map((project) => (
-                    <div key={project.id} className="rounded-[24px] border border-[#edf2f3] bg-[#fbfdfd] px-4 py-4 shadow-[0_18px_30px_-30px_rgba(12,54,58,0.2)]">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="truncate text-[15px] font-semibold text-[#172228]">{project.title}</p>
-                          <p className="mt-1 text-[12px] text-[#819095]">{project.department}</p>
-                        </div>
-                        <div
-                          className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
-                          style={{ backgroundColor: project.tone }}
-                        >
-                          خطورة {project.riskScore}
-                        </div>
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2 text-[12px]">
-                        <span className="rounded-full bg-[#fff8df] px-3 py-1 font-semibold text-[#b88900]">
-                          متأخرة {project.overdue}
-                        </span>
-                        <span className="rounded-full bg-[#fff1ec] px-3 py-1 font-semibold text-[#cf6247]">
-                          متعثرة {project.blocked}
-                        </span>
-                        <span className="rounded-full bg-[#eef4ff] px-3 py-1 font-semibold text-[#5c6bd8]">
-                          ينتهي {project.dueDate}
-                        </span>
-                      </div>
-                      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#e5ecec]">
-                        <div className="h-full rounded-full bg-[linear-gradient(90deg,#0d7573_0%,#2db6b2_100%)]" style={{ width: `${project.progress}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <DirectorEmptyState message="لا توجد حالات حرجة حالياً، وضع المحفظة مستقر ضمن هذا النطاق." />
-              )}
-                </DirectorSection>
-
-                <DirectorSection
-              title="حمل الأعضاء"
-              subtitle="أعلى الأعضاء انشغالاً حالياً بناءً على المهام المفتوحة والمهام الحرجة."
-            >
-              {workloadData.length ? (
-                <div className="space-y-3">
-                  {workloadData.map((member, index) => (
-                    <div key={member.name} className="rounded-[24px] bg-[#f9fcfc] px-4 py-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="text-[15px] font-semibold text-[#172228]">{member.name}</p>
-                          <p className="mt-1 text-[12px] text-[#7e8c91]">
-                            {member.open} مفتوحة • {member.critical} حرجة • {member.done} منتهية
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-[#0d7573] shadow-[0_12px_22px_-18px_rgba(12,54,58,0.22)]">
-                          #{index + 1}
-                        </span>
-                      </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#e4ecee]">
-                        <div
-                          className="h-full rounded-full bg-[linear-gradient(90deg,#0d7573_0%,#5c6bd8_100%)]"
-                          style={{ width: `${Math.min(100, member.score)}%` }}
-                        />
-                      </div>
-                      <p className="mt-2 text-[12px] text-[#7e8c91]">{member.hours} ساعة تقديرية ضمن النطاق الحالي</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <DirectorEmptyState message="لا توجد بيانات تكليف كافية لقياس حمل الأعضاء حالياً." />
-              )}
-                </DirectorSection>
-              </div>
-            </div>
           </div>
         </section>
 
-        <div className="mt-6">
-          <DirectorSection
-            title="سجل العمليات التنفيذية"
-            subtitle="آخر ما تم عبر الأقسام من تحديثات ومهام دخلت إلى دورة العمل."
-            action={
-              <span className="inline-flex items-center gap-2 rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
-                <UsersRound className="h-4 w-4" />
-                {operationFeed.length} عملية حديثة
-              </span>
-            }
-          >
-            {operationFeed.length ? (
-              <div className="grid gap-4 lg:grid-cols-2">
-                {operationFeed.map((operation) => {
-                  const toneClasses = {
-                    teal: "bg-[#edf8f8] text-[#0d7573]",
-                    amber: "bg-[#fff8df] text-[#d89b09]",
-                    coral: "bg-[#fff1ec] text-[#ef7c61]",
-                    slate: "bg-[#eef2f3] text-[#66787d]",
-                  }[operation.tone];
+        </section>
 
-                  return (
-                    <div
-                      key={operation.id}
-                      className="group rounded-[26px] border border-[#edf2f3] bg-[#fbfdfd] px-4 py-4 shadow-[0_20px_34px_-30px_rgba(12,54,58,0.22)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_40px_-28px_rgba(12,54,58,0.28)]"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="truncate text-[15px] font-semibold text-[#172228]">{operation.title}</p>
-                          <p className="mt-1 text-[12px] text-[#7f8d92]">{operation.subtitle}</p>
-                        </div>
-                        <span className={cn("shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold", toneClasses)}>
-                          {formatDate(operation.occurredAt)}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-[14px] leading-7 text-[#56656b]">{operation.description}</p>
-                    </div>
-                  );
-                })}
+        {isAsideCollapsed ? (
+          <aside
+            dir="rtl"
+            className="order-first relative m-2 h-[calc(100vh-1rem)] w-full max-w-[96px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-3 pb-4 pt-7 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)]"
+          >
+            <div className="flex w-full justify-center">
+              <div className="grid h-12 w-12 place-items-center rounded-[20px] bg-[#f4f7f8] text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.18)]">
+                <ActiveAsideIcon className="h-5 w-5" />
               </div>
-            ) : (
-              <DirectorEmptyState message="لا توجد عمليات حديثة ضمن الفلاتر الحالية." />
-            )}
-          </DirectorSection>
-        </div>
-      </section>
+            </div>
+          </aside>
+        ) : (
+          <DirectorCalendarAside
+            activeView={directorAsideView}
+            calendarDays={calendarDays}
+            calendarEventsByDay={calendarEventsByDay}
+            calendarEventTime={calendarEventTime}
+            calendarEventTitle={calendarEventTitle}
+            calendarEventType={calendarEventType}
+            calendarHeading={calendarHeading}
+            calendarMonthHeading={calendarMonthHeading}
+            executiveUpdates={executiveFeed}
+            isCalendarEventComposerOpen={isCalendarEventComposerOpen}
+            onAddCalendarEvent={handleAddCalendarEvent}
+            onCalendarDateSelect={handleCalendarDateSelect}
+            onCalendarEventTimeChange={setCalendarEventTime}
+            onCalendarEventTitleChange={setCalendarEventTitle}
+            onCalendarEventTypeChange={setCalendarEventType}
+            onCalendarMonthChange={handleCalendarMonthChange}
+            onComposerToggle={() => setIsCalendarEventComposerOpen((current) => !current)}
+            onViewChange={setDirectorAsideView}
+            selectedCalendarDateKey={selectedCalendarDateKey}
+            selectedDateEvents={selectedDateEvents}
+          />
+        )}
+      </div>
     </div>
   );
 }

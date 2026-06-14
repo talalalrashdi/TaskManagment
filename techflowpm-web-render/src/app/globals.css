@@ -1,40 +1,40 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Thmanyah Serif Display";
-  src: url("/fonts/thmanyah/thmanyahserifdisplay-Light.woff2") format("woff2");
+  font-family: "Thmanyah Sans";
+  src: url("/fonts/thmanyah/thmanyahsans-Light.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 300;
 }
 
 @font-face {
-  font-family: "Thmanyah Serif Display";
-  src: url("/fonts/thmanyah/thmanyahserifdisplay-Regular.woff2") format("woff2");
+  font-family: "Thmanyah Sans";
+  src: url("/fonts/thmanyah/thmanyahsans-Regular.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 400;
 }
 
 @font-face {
-  font-family: "Thmanyah Serif Display";
-  src: url("/fonts/thmanyah/thmanyahserifdisplay-Medium.woff2") format("woff2");
+  font-family: "Thmanyah Sans";
+  src: url("/fonts/thmanyah/thmanyahsans-Medium.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 500;
 }
 
 @font-face {
-  font-family: "Thmanyah Serif Display";
-  src: url("/fonts/thmanyah/thmanyahserifdisplay-Bold.woff2") format("woff2");
+  font-family: "Thmanyah Sans";
+  src: url("/fonts/thmanyah/thmanyahsans-Bold.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 700;
 }
 
 @font-face {
-  font-family: "Thmanyah Serif Display";
-  src: url("/fonts/thmanyah/thmanyahserifdisplay-Black.woff2") format("woff2");
+  font-family: "Thmanyah Sans";
+  src: url("/fonts/thmanyah/thmanyahsans-Black.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
   font-weight: 900;
@@ -74,7 +74,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Thmanyah Serif Display", "Cairo", "Inter", "Segoe UI", sans-serif;
+  --font-sans: "Thmanyah Sans", "Cairo", "Inter", "Segoe UI", sans-serif;
 }
 
 * {
@@ -91,7 +91,14 @@ body {
     radial-gradient(circle at 80% 0%, rgba(14, 165, 233, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.96));
   color: var(--foreground);
-  font-family: "Thmanyah Serif Display", "Cairo", "Inter", "Segoe UI", sans-serif;
+  font-family: "Thmanyah Sans", "Cairo", "Inter", "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 .dark body {

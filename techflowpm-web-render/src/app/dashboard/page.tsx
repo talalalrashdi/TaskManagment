@@ -10,10 +10,11 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  FolderKanban,
+  Layers3,
   Pencil,
   Plus,
   Sparkles,
-  Sun,
   Trash2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -76,7 +77,10 @@ type CalendarDayCell = {
   isToday: boolean;
 };
 
-const bookingTabs = ["مشاريعي", "مشاريع مشتركة", "مشاريع عرضيه"];
+const bookingTabs = [
+  { key: "owned", label: "مشاريعي", icon: FolderKanban },
+  { key: "adHoc", label: "مشاريع عرضيه", icon: Layers3 },
+] as const;
 const QUICK_TASK_STORAGE_KEY = "techflowpm-dashboard-quick-tasks";
 const CALENDAR_EVENT_STORAGE_KEY = "techflowpm-dashboard-calendar-events";
 const quickTaskColorOptions: Array<{
@@ -328,6 +332,8 @@ function getCalendarEventAppearance(type: CalendarEventType): Pick<ScheduleItem,
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [asideView, setAsideView] = useState<AsideView>("calendar");
+  const [isAsideCollapsed, setIsAsideCollapsed] = useState(false);
+  const [activeBookingTab, setActiveBookingTab] = useState<(typeof bookingTabs)[number]["key"]>("owned");
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [projectForm, setProjectForm] = useState(() => getInitialProjectForm());
   const storedUser = useAuthStore((state) => state.user);
@@ -495,16 +501,6 @@ export default function DashboardPage() {
   const calendarDays = useMemo(() => buildCalendarCells(calendarMonth), [calendarMonth]);
   const selectedCalendarDateKey = useMemo(() => getDateKey(selectedCalendarDate), [selectedCalendarDate]);
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-
-    if (hour >= 5 && hour < 12) {
-      return "صباح الخير";
-    }
-
-    return "مساء الخير";
-  }, []);
-
   const projectTitleMap = useMemo(
     () => new Map(allProjects.map((project) => [project.id, project.title])),
     [allProjects],
@@ -525,6 +521,21 @@ export default function DashboardPage() {
     () => (statsQuery.data?.recentUpdates ?? []).slice(0, 5),
     [statsQuery.data?.recentUpdates],
   );
+
+  const asideTabs = useMemo(
+    () => [
+      { key: "calendar" as const, label: "التقويم", icon: CalendarDays },
+      { key: "updates" as const, label: "الموقف التنفيذي", icon: Sparkles },
+      { key: "tasks" as const, label: "المهام الشخصية", icon: Pencil },
+    ],
+    [],
+  );
+
+  const activeAsideTab = useMemo(
+    () => asideTabs.find((tab) => tab.key === asideView) ?? asideTabs[0],
+    [asideTabs, asideView],
+  );
+  const ActiveAsideIcon = activeAsideTab.icon;
 
   const projectPersonalTasks = useMemo<DashboardPersonalTask[]>(() => {
     return previewTaskQueries
@@ -980,12 +991,21 @@ export default function DashboardPage() {
           <header
             dir="rtl"
             className={cn(
-              "sticky top-3 z-30 mt-3 flex items-center justify-end rounded-[30px] px-5 py-4 transition-all duration-300",
+              "sticky top-3 z-30 mt-3 flex items-center justify-between rounded-[30px] px-5 py-4 transition-all duration-300",
               isDashboardContentScrolled
                 ? "border border-white/80 bg-white/76 shadow-[0_22px_48px_-36px_rgba(12,54,58,0.34)] backdrop-blur-xl"
                 : "bg-transparent shadow-none backdrop-blur-0",
             )}
           >
+            <button
+              type="button"
+              onClick={() => setIsAsideCollapsed((current) => !current)}
+              title={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+              aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+            >
+              {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
             <div className="flex items-center gap-3 text-[#28383d]">
               <Link
                 href="/director"
@@ -1014,13 +1034,7 @@ export default function DashboardPage() {
 
           <div dir="rtl" className="mt-12 flex w-full flex-col items-start gap-5 text-right">
             <div className="flex w-full flex-col items-start text-right">
-              <div className="flex flex-row-reverse items-center gap-3 text-[#11272c]">
-                <Sun className="h-8 w-8 text-[#f0b819] lg:h-9 lg:w-9" />
-                <h1 className="text-[38px] font-semibold tracking-[-0.06em] lg:text-[44px]">
-                  {greeting}
-                </h1>
-              </div>
-              <div className="mt-8 self-start">
+              <div className="self-start">
                 <ProfileAvatar name={currentUser.name} avatar={currentUser.avatar} />
               </div>
               <div className="mt-5 self-start text-right">
@@ -1030,30 +1044,46 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div dir="rtl" className="mt-8 flex flex-wrap gap-8 text-right">
-            {bookingTabs.map((tab, index) => (
-              <div key={tab} className="relative">
-                <button
-                  type="button"
-                  className={cn(
-                    "text-[16px] font-medium tracking-[-0.03em]",
-                    index === 0 ? "text-[#0d7573]" : "text-[#7c8f91]",
-                  )}
-                >
-                  {tab}
-                </button>
-                {index === 0 ? (
-                  <span className="absolute -bottom-3 right-0 h-[3px] w-7 rounded-full bg-[#0d7573]" />
-                ) : null}
-              </div>
-            ))}
-          </div>
-
           <section className="mt-10" dir="rtl">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h2 className="text-[28px] font-semibold tracking-[-0.04em] text-[#12262b]">قائمة مشاريعي</h2>
-                <p className="mt-1 text-[14px] text-[#748489]">جميع المشاريع الحالية مع نسبة الإنجاز وأعضاء كل مشروع</p>
+              <div className="flex flex-col items-end gap-5 text-right">
+                <div className="w-full max-w-[360px] text-right">
+                  <div className="min-w-0 flex-1 rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
+                    <div className="grid grid-cols-2 gap-2">
+                      {bookingTabs.map((tab) => {
+                        const Icon = tab.icon;
+
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setActiveBookingTab(tab.key)}
+                            className={cn(
+                              "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
+                              activeBookingTab === tab.key
+                                ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
+                                : "font-medium text-[#7c8f91]",
+                            )}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="whitespace-nowrap">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full max-w-[560px]">
+                <h2 className="text-[28px] font-semibold tracking-[-0.04em] text-[#12262b]">
+                  {activeBookingTab === "owned" ? "قائمة مشاريعي" : "قائمة المشاريع العرضية"}
+                </h2>
+                <p className="mt-1 text-[14px] text-[#748489]">
+                  {activeBookingTab === "owned"
+                    ? "جميع المشاريع الحالية مع نسبة الإنجاز وأعضاء كل مشروع"
+                    : "عرض المشاريع العرضية الحالية بنفس البطاقات لسهولة المتابعة السريعة."}
+                </p>
+                </div>
               </div>
               <div className="inline-flex items-center rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.34)]">
                 {allProjects.length} مشروع
@@ -1081,42 +1111,54 @@ export default function DashboardPage() {
         </section>
 
         <aside
-          className="relative m-2 h-[calc(100vh-1rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-8 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] sm:px-7 lg:px-8"
+          className={cn(
+            "relative m-2 h-[calc(100vh-1rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-8 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] transition-[max-width,padding] duration-300 ease-out sm:px-7 lg:px-8",
+            isAsideCollapsed && "max-w-[96px] px-3 pb-4 sm:px-3 lg:px-3",
+          )}
         >
           <div
-            className="sticky top-0 z-30 -mx-6 bg-transparent px-6 pb-0 pt-7 shadow-none backdrop-blur-0 transition-all duration-300 sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8"
+            className={cn(
+              "sticky top-0 z-30 bg-transparent pb-0 pt-7 shadow-none backdrop-blur-0 transition-all duration-300",
+              isAsideCollapsed ? "-mx-3 px-3" : "-mx-6 px-6 sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8",
+            )}
           >
-            <div className="rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { key: "calendar" as const, label: "التقويم", icon: CalendarDays },
-                { key: "updates" as const, label: "الموقف التنفيذي", icon: Sparkles },
-                { key: "tasks" as const, label: "المهام الشخصية", icon: Pencil },
-              ].map((tab) => {
-                const Icon = tab.icon;
+            <div className={cn("flex items-start gap-2", isAsideCollapsed && "flex-col items-center")}>
+              {!isAsideCollapsed ? (
+                <div className="min-w-0 flex-1 rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {asideTabs.map((tab) => {
+                      const Icon = tab.icon;
 
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setAsideView(tab.key)}
-                    className={cn(
-                      "flex items-center justify-center gap-2 rounded-[18px] px-3 py-3 text-[13px] font-semibold transition-all",
-                      asideView === tab.key
-                        ? "bg-white text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
-                        : "text-[#7c8f91]",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span className="hidden md:inline">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+                      return (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setAsideView(tab.key)}
+                          className={cn(
+                            "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
+                            asideView === tab.key
+                              ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
+                              : "font-medium text-[#7c8f91]",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="hidden whitespace-nowrap md:inline">{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {isAsideCollapsed ? (
+                <div className="grid h-12 w-12 place-items-center rounded-[20px] bg-[#f4f7f8] text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.18)]">
+                  <ActiveAsideIcon className="h-5 w-5" />
+                </div>
+              ) : null}
             </div>
           </div>
 
-          {asideView === "calendar" ? (
+          {!isAsideCollapsed && asideView === "calendar" ? (
             <>
               <div className="mt-8 flex items-center justify-between">
                 <div>
@@ -1408,7 +1450,7 @@ export default function DashboardPage() {
             </>
           ) : null}
 
-          {asideView === "updates" ? (
+          {!isAsideCollapsed && asideView === "updates" ? (
             <div className="mt-7 flex h-[calc(100dvh-8rem)] min-h-[720px] flex-col">
               <div className="mt-3 flex min-h-0 flex-1 flex-col">
                 <div className="flex items-center justify-between">
@@ -1463,7 +1505,7 @@ export default function DashboardPage() {
                       {isExecutiveComposerOpen ? (
                         <ChevronDown className="h-5 w-5 rotate-180 transition-transform" />
                       ) : (
-                        <Sparkles className="h-5 w-5 text-[#f0b819]" />
+                        <Plus className="h-5 w-5" />
                       )}
                     </span>
                   </button>
@@ -1518,7 +1560,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          {asideView === "tasks" ? (
+          {!isAsideCollapsed && asideView === "tasks" ? (
             <div className="mt-7 flex h-[calc(100dvh-8rem)] min-h-[720px] flex-col">
               <div className="mt-3 flex min-h-0 flex-1 flex-col">
                 <div className="flex items-center justify-between">
@@ -1578,7 +1620,7 @@ export default function DashboardPage() {
 		                      {isQuickTaskComposerOpen ? (
 		                        <ChevronDown className="h-5 w-5 rotate-180 transition-transform" />
 		                      ) : (
-		                        <Pencil className="h-5 w-5" />
+		                        <Plus className="h-5 w-5" />
 		                      )}
 		                    </span>
 		                  </button>
@@ -1702,7 +1744,7 @@ export default function DashboardPage() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ duration: 0.32, ease: "easeOut" }}
-              className="fixed inset-y-0 left-0 z-[60] w-full max-w-[680px] overflow-y-auto border-r border-[#e6eeee] bg-[#f8fbfb] px-5 pb-6 pt-5 shadow-[0_40px_90px_-40px_rgba(7,47,52,0.42)] sm:px-6"
+              className="fixed inset-y-3 left-3 z-[60] w-[calc(100%-1.5rem)] max-w-[688px] overflow-y-auto rounded-[38px] border border-white/75 bg-[#f8fbfb]/96 px-5 pb-6 pt-5 shadow-[0_40px_90px_-34px_rgba(7,47,52,0.38)] ring-1 ring-[#dfe8e9]/70 backdrop-blur-sm sm:px-6"
             >
               <div className="flex items-center justify-between border-b border-[#e8eff0] pb-4">
                 <div>
@@ -2217,7 +2259,7 @@ function PersonalTaskCard({
             disabled={isStatusUpdating}
             onChange={(event) => onStatusChange(event.target.value as Task["status"])}
             className={cn(
-              "h-7 min-w-[86px] cursor-pointer appearance-none rounded-full border-0 pe-7 ps-3 text-center text-[11px] font-semibold leading-none outline-none transition focus:ring-2 focus:ring-[#0d7573]/20 disabled:cursor-wait disabled:opacity-70",
+              "h-8 min-w-[110px] cursor-pointer appearance-none rounded-full border-0 pe-3 ps-8 text-right text-[10px] font-semibold leading-none whitespace-nowrap outline-none transition focus:ring-2 focus:ring-[#0d7573]/20 disabled:cursor-wait disabled:opacity-70 md:text-[11px]",
               statusMeta.tone,
             )}
           >
@@ -2227,7 +2269,7 @@ function PersonalTaskCard({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#526268]" />
+          <ChevronDown className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#526268]" />
         </div>
       </div>
 

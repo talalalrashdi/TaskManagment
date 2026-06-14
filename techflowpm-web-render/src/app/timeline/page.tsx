@@ -211,6 +211,7 @@ function translateCalendarEventType(type: TimelineCalendarEventType) {
 export default function TimelinePage() {
   const [isTimelineContentScrolled, setIsTimelineContentScrolled] = useState(false);
   const [timelineAsideView, setTimelineAsideView] = useState<TimelineAsideView>("calendar");
+  const [isAsideCollapsed, setIsAsideCollapsed] = useState(false);
   const [isCalendarEventComposerOpen, setIsCalendarEventComposerOpen] = useState(false);
   const [calendarEventTitle, setCalendarEventTitle] = useState("");
   const [calendarEventTime, setCalendarEventTime] = useState("09:00");
@@ -334,6 +335,11 @@ export default function TimelinePage() {
     () => calendarEventsByDay.get(selectedCalendarDateKey) ?? [],
     [calendarEventsByDay, selectedCalendarDateKey],
   );
+  const activeAsideTab = useMemo(
+    () => timelineAsideTabs.find((tab) => tab.key === timelineAsideView) ?? timelineAsideTabs[0],
+    [timelineAsideView],
+  );
+  const ActiveAsideIcon = activeAsideTab.icon;
 
   const handleCalendarMonthChange = (direction: -1 | 1) => {
     setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
@@ -377,29 +383,59 @@ export default function TimelinePage() {
         <header
           dir="rtl"
           className={cn(
-            "sticky top-3 z-30 mt-3 flex flex-col gap-4 rounded-[30px] px-5 py-4 text-right transition-all duration-300 md:flex-row md:items-center md:justify-between",
+            "sticky top-3 z-30 mt-3 flex flex-col gap-4 rounded-[30px] px-5 py-4 transition-all duration-300 lg:flex-row lg:items-center lg:justify-between",
             isTimelineContentScrolled
               ? "border border-white/80 bg-white/76 shadow-[0_22px_48px_-36px_rgba(12,54,58,0.34)] backdrop-blur-xl"
               : "bg-transparent shadow-none backdrop-blur-0",
           )}
         >
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)]">
-              <CalendarRange className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[12px] font-semibold text-[#7c8f91]">مساحة العمل</p>
-              <h1 className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-[#15242a]">الجدول الزمني السنوي</h1>
-            </div>
+          <button
+            type="button"
+            onClick={() => setIsAsideCollapsed((current) => !current)}
+            title={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+            aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+          >
+            {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link
+              href="/dashboard"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#1d7775] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              لوحة العمليات
+            </Link>
+            <span className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#0d7573] px-4 text-[13px] font-semibold text-white shadow-[0_20px_36px_-24px_rgba(13,117,115,0.7)]">
+              <CalendarDays className="h-4 w-4" />
+              الجدول الزمني
+            </span>
+            <Link
+              href="/director"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#173036] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+            >
+              <Sparkles className="h-4 w-4 text-[#f0b819]" />
+              مدير الدائرة
+            </Link>
           </div>
 
-          <Link
-            href="/dashboard"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            العودة للوحة التحكم
-          </Link>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <select
+              value={String(filters.year)}
+              onChange={(event) => setFilters((current) => ({ ...current, year: Number(event.target.value) }))}
+              className="h-11 rounded-2xl border border-white/80 bg-white/88 px-4 text-sm font-semibold text-[#173036] outline-none transition focus:border-[#0d7573] focus:ring-2 focus:ring-[#0d7573]/15"
+            >
+              {Array.from({ length: 5 }).map((_, index) => {
+                const year = new Date().getFullYear() - 1 + index;
+                return (
+                  <option key={year} value={year}>
+                    سنة {year}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
         </header>
 
         <div className="space-y-6 pt-9" dir="rtl">
@@ -500,27 +536,40 @@ export default function TimelinePage() {
         </div>
         </section>
 
-        <TimelineCalendarAside
-          activeView={timelineAsideView}
-          calendarDays={calendarDays}
-          calendarEventsByDay={calendarEventsByDay}
-          calendarEventTime={calendarEventTime}
-          calendarEventTitle={calendarEventTitle}
-          calendarEventType={calendarEventType}
-          calendarHeading={calendarHeading}
-          calendarMonthHeading={calendarMonthHeading}
-          isCalendarEventComposerOpen={isCalendarEventComposerOpen}
-          onAddCalendarEvent={handleAddCalendarEvent}
-          onCalendarDateSelect={handleCalendarDateSelect}
-          onCalendarEventTimeChange={setCalendarEventTime}
-          onCalendarEventTitleChange={setCalendarEventTitle}
-          onCalendarEventTypeChange={setCalendarEventType}
-          onCalendarMonthChange={handleCalendarMonthChange}
-          onComposerToggle={() => setIsCalendarEventComposerOpen((current) => !current)}
-          onViewChange={setTimelineAsideView}
-          selectedCalendarDateKey={selectedCalendarDateKey}
-          selectedDateEvents={selectedDateEvents}
-        />
+        {isAsideCollapsed ? (
+          <aside
+            dir="rtl"
+            className="relative m-2 h-[calc(100vh-1rem)] w-full max-w-[96px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-3 pb-4 pt-7 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)]"
+          >
+            <div className="flex w-full justify-center">
+              <div className="grid h-12 w-12 place-items-center rounded-[20px] bg-[#f4f7f8] text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.18)]">
+                <ActiveAsideIcon className="h-5 w-5" />
+              </div>
+            </div>
+          </aside>
+        ) : (
+          <TimelineCalendarAside
+            activeView={timelineAsideView}
+            calendarDays={calendarDays}
+            calendarEventsByDay={calendarEventsByDay}
+            calendarEventTime={calendarEventTime}
+            calendarEventTitle={calendarEventTitle}
+            calendarEventType={calendarEventType}
+            calendarHeading={calendarHeading}
+            calendarMonthHeading={calendarMonthHeading}
+            isCalendarEventComposerOpen={isCalendarEventComposerOpen}
+            onAddCalendarEvent={handleAddCalendarEvent}
+            onCalendarDateSelect={handleCalendarDateSelect}
+            onCalendarEventTimeChange={setCalendarEventTime}
+            onCalendarEventTitleChange={setCalendarEventTitle}
+            onCalendarEventTypeChange={setCalendarEventType}
+            onCalendarMonthChange={handleCalendarMonthChange}
+            onComposerToggle={() => setIsCalendarEventComposerOpen((current) => !current)}
+            onViewChange={setTimelineAsideView}
+            selectedCalendarDateKey={selectedCalendarDateKey}
+            selectedDateEvents={selectedDateEvents}
+          />
+        )}
       </div>
     </div>
   );
@@ -608,14 +657,14 @@ function TimelineCalendarAside({
                   type="button"
                   onClick={() => onViewChange(tab.key)}
                   className={cn(
-                    "flex items-center justify-center gap-2 rounded-[18px] px-3 py-3 text-[13px] font-semibold transition-all",
+                    "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
                     activeView === tab.key
-                      ? "bg-white text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
-                      : "text-[#7c8f91]",
+                      ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
+                      : "font-medium text-[#7c8f91]",
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden md:inline">{tab.label}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="hidden whitespace-nowrap md:inline">{tab.label}</span>
                 </button>
               );
             })}
