@@ -31,6 +31,7 @@ BEGIN
     CREATE TABLE dbo.Projects (
         id INT IDENTITY(1,1) PRIMARY KEY,
         title NVARCHAR(200) NOT NULL,
+        document_number NVARCHAR(100) NULL,
         description NVARCHAR(MAX) NOT NULL,
         type NVARCHAR(50) NOT NULL,
         status NVARCHAR(50) NOT NULL,
@@ -94,6 +95,7 @@ BEGIN
     CREATE TABLE dbo.ExecutiveUpdates (
         id INT IDENTITY(1,1) PRIMARY KEY,
         project_id INT NOT NULL,
+        title NVARCHAR(200) NULL,
         content NVARCHAR(MAX) NOT NULL,
         update_type NVARCHAR(50) NOT NULL,
         created_by_id INT NOT NULL,

@@ -20,6 +20,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { apiClient } from "@/lib/api-client";
 import { AUTH_BYPASS_ENABLED, BYPASS_USER } from "@/lib/config";
+import { createProjectHubConnection } from "@/lib/signalr";
 import { cn, getStatusTone, getTypeColor, percentage } from "@/lib/utils";
 import { Button, Input, Select, TextArea } from "@/components/ui/primitives";
 import { useAuthStore } from "@/store/auth-store";
@@ -77,6 +78,10 @@ type CalendarDayCell = {
   isToday: boolean;
 };
 
+type ProjectManagerOption = User & {
+  displayName: string;
+};
+
 const bookingTabs = [
   { key: "owned", label: "مشاريعي", icon: FolderKanban },
   { key: "adHoc", label: "مشاريع عرضيه", icon: Layers3 },
@@ -109,7 +114,7 @@ const personalTaskStatusOptions: Array<{
   { value: "Todo", label: "جديدة", tone: "bg-[#edf8f8] text-[#0d7573]" },
   { value: "InProgress", label: "قيد التنفيذ", tone: "bg-[#fff8df] text-[#d89b09]" },
   { value: "Review", label: "مراجعة", tone: "bg-[#eef4ff] text-[#5c6bd8]" },
-  { value: "Blocked", label: "متعثرة", tone: "bg-[#fff0ec] text-[#ef7c61]" },
+  { value: "Blocked", label: "توجد مشكلة", tone: "bg-[#fff0ec] text-[#ef7c61]" },
   { value: "Done", label: "منتهي", tone: "bg-[#eef1f2] text-[#7a8589]" },
 ];
 const calendarHeader = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -127,6 +132,13 @@ const calendarMonthLabels = [
   "نوفمبر",
   "ديسمبر",
 ];
+const projectManagerDisplayNames: Record<string, string> = {
+  "Fatma Al-Harthi": "طلال الراشدي",
+  "Saeed Al-Balushi": "سعيد السلامي",
+  "Aisha Al-Rawahi": "محمد النعماني",
+  "Mohammed Al-Qahtani": "خالد البوسعيدي",
+  "System Admin": "مدير النظام",
+};
 const calendarWeekdayLabels = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
 const projectDepartments = [
@@ -139,6 +151,7 @@ const projectDepartments = [
 function getInitialProjectForm(projectManagerId = 2) {
   return {
     title: "",
+    documentNumber: "",
     description: "",
     type: "Software",
     status: "Planning",
@@ -297,7 +310,7 @@ function translateTaskStatus(status: Task["status"]) {
       InProgress: "قيد التنفيذ",
       Review: "مراجعة",
       Done: "منتهي",
-      Blocked: "متعثرة",
+      Blocked: "توجد مشكلة",
     }[status] ?? "مهمة"
   );
 }
@@ -337,6 +350,7 @@ export default function DashboardPage() {
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [projectForm, setProjectForm] = useState(() => getInitialProjectForm());
   const storedUser = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const [storedQuickTasks, setStoredQuickTasks] = useState<StoredQuickTask[]>([]);
   const [storedCalendarEvents, setStoredCalendarEvents] = useState<StoredCalendarEvent[]>([]);
   const [quickTasksReady, setQuickTasksReady] = useState(false);
@@ -463,6 +477,17 @@ export default function DashboardPage() {
         .then((response) => response.data),
   });
 
+  const projectManagers = useMemo<ProjectManagerOption[]>(
+    () =>
+      (usersQuery.data?.items ?? [])
+        .filter((user) => user.role !== "Admin")
+        .map((user) => ({
+          ...user,
+          displayName: projectManagerDisplayNames[user.name] ?? user.name,
+        })),
+    [usersQuery.data?.items],
+  );
+
   const projectDetailQueries = useQueries({
     queries: allProjects.map((project) => ({
       queryKey: ["dashboard-project-detail", project.id],
@@ -495,6 +520,46 @@ export default function DashboardPage() {
       staleTime: 60_000,
     })),
   });
+
+  useEffect(() => {
+    if (!token || allProjects.length === 0) {
+      return;
+    }
+
+    const connection = createProjectHubConnection(token);
+    let mounted = true;
+
+    connection.on("task:statusChanged", (payload: { projectId: number }) => {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-project-tasks", payload.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", payload.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-detail", payload.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    });
+
+    connection.on("project:updateAdded", (update: ExecutiveUpdate) => {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", update.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-detail", update.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    });
+
+    void connection
+      .start()
+      .then(async () => {
+        if (mounted) {
+          await Promise.all(allProjects.map((project) => connection.invoke("JoinProject", project.id)));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+      void Promise.all(allProjects.map((project) => connection.invoke("LeaveProject", project.id).catch(() => undefined)))
+        .finally(() => {
+          void connection.stop();
+        });
+    };
+  }, [allProjects, queryClient, token]);
 
   const calendarHeading = useMemo(() => getCalendarDateLabel(selectedCalendarDate), [selectedCalendarDate]);
   const calendarMonthHeading = useMemo(() => getCalendarDateLabel(calendarMonth), [calendarMonth]);
@@ -713,10 +778,10 @@ export default function DashboardPage() {
   const tasksLoading = previewTaskQueries.some((query) => query.isLoading);
   const defaultProjectManagerId = useMemo(
     () =>
-      usersQuery.data?.items.find((user) => user.role === "Project Manager")?.id ??
+      projectManagers[0]?.id ??
       usersQuery.data?.items[0]?.id ??
       2,
-    [usersQuery.data?.items],
+    [projectManagers, usersQuery.data?.items],
   );
 
   useEffect(() => {
@@ -1004,7 +1069,10 @@ export default function DashboardPage() {
               aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
             >
-              {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <span className="flex items-center gap-0.5">
+                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </span>
             </button>
             <div className="flex items-center gap-3 text-[#28383d]">
               <Link
@@ -1012,7 +1080,7 @@ export default function DashboardPage() {
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#173036] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
               >
                 <Sparkles className="h-4 w-4 text-[#f0b819]" />
-                مدير الدائرة
+                رئيس الدائرة
               </Link>
               <Link
                 href="/timeline"
@@ -1781,6 +1849,16 @@ export default function DashboardPage() {
                     />
                   </FieldBlock>
 
+                  <FieldBlock label="رقم الوثيقة">
+                    <Input
+                      placeholder="مثال: DOC-2026-014"
+                      value={projectForm.documentNumber}
+                      onChange={(event) =>
+                        setProjectForm((current) => ({ ...current, documentNumber: event.target.value }))
+                      }
+                    />
+                  </FieldBlock>
+
                   <FieldBlock label="مدير المشروع">
                     <Select
                       value={String(projectForm.projectManagerId)}
@@ -1791,9 +1869,9 @@ export default function DashboardPage() {
                         }))
                       }
                     >
-                      {usersQuery.data?.items.map((user) => (
+                      {projectManagers.map((user) => (
                         <option key={user.id} value={user.id}>
-                          {user.name}
+                          {user.displayName}
                         </option>
                       ))}
                     </Select>
@@ -1835,7 +1913,6 @@ export default function DashboardPage() {
                         setProjectForm((current) => ({ ...current, priority: event.target.value }))
                       }
                     >
-                      <option value="Low">منخفضة</option>
                       <option value="Medium">متوسطة</option>
                       <option value="High">عالية</option>
                       <option value="Critical">حرجة</option>
@@ -2182,6 +2259,9 @@ function ExecutiveUpdateCard({
         </div>
         <span className={cn("rounded-full px-3 py-1 text-[11px] font-semibold", typeTone)}>{typeLabel}</span>
       </div>
+      {update.title ? (
+        <p className="mt-3 text-[15px] font-semibold leading-6 text-[#172228]">{update.title}</p>
+      ) : null}
       <p className="mt-3 text-[14px] leading-6 text-[#556066]">{update.content}</p>
       {onDelete ? (
         <div className="mt-3 flex justify-end">

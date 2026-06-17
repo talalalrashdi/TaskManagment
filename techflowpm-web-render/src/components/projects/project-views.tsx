@@ -94,7 +94,6 @@ export function ProjectViews({
             }
           >
             <option value="">كل الأولويات</option>
-            <option value="Low">Low</option>
             <option value="Medium">Medium</option>
             <option value="High">High</option>
             <option value="Critical">Critical</option>

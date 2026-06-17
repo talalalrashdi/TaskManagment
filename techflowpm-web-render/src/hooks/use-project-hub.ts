@@ -20,7 +20,10 @@ export function useProjectHub(projectId?: number) {
 
     connection.on("task:statusChanged", () => {
       void queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-summary", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["director-project-detail", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     });
 
@@ -33,6 +36,12 @@ export function useProjectHub(projectId?: number) {
 
     connection.on("project:updateAdded", (update: ExecutiveUpdate) => {
       queryClient.setQueryData<ExecutiveUpdate[]>(["project-updates", projectId], (current = []) => [update, ...current]);
+      void queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-summary", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["director-project-detail", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     });
 
     connection.on("project:memberAdded", (payload: { member: ProjectMember }) => {

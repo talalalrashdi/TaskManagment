@@ -13,10 +13,10 @@ IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE email = N'admin@techflow.local')
 BEGIN
     INSERT INTO dbo.Users (name, email, password_hash, role, avatar, department_id)
     VALUES
-        (N'System Admin', N'admin@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Admin', NULL, 1),
-        (N'Fatma Al-Harthi', N'fatma@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Project Manager', NULL, 1),
-        (N'Saeed Al-Balushi', N'saeed@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Member', NULL, 3),
-        (N'Aisha Al-Rawahi', N'aisha@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Viewer', NULL, 2);
+        (N'مدير النظام', N'admin@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Admin', NULL, 1),
+        (N'طلال الراشدي', N'fatma@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Project Manager', NULL, 1),
+        (N'سعيد السلامي', N'saeed@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Member', NULL, 3),
+        (N'محمد النعماني', N'aisha@techflow.local', N'VlnHjLMkAkQUYF10/HbUkw==.8Nxx0FVHiU4dPsnPqA6W9EHgVPji3+ZWikVKwt037ss=', N'Viewer', NULL, 2);
 END;
 GO
 

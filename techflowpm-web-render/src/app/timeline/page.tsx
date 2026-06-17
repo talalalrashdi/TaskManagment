@@ -396,7 +396,10 @@ export default function TimelinePage() {
             aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
           >
-            {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <span className="flex items-center gap-0.5">
+              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </span>
           </button>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -416,7 +419,7 @@ export default function TimelinePage() {
               className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#173036] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
             >
               <Sparkles className="h-4 w-4 text-[#f0b819]" />
-              مدير الدائرة
+              رئيس الدائرة
             </Link>
           </div>
 

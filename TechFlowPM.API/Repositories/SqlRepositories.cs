@@ -132,6 +132,7 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             SELECT
                 p.id AS Id,
                 p.title AS Title,
+                p.document_number AS DocumentNumber,
                 p.description AS Description,
                 p.type AS Type,
                 p.status AS Status,
@@ -179,6 +180,7 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             SELECT
                 p.id AS Id,
                 p.title AS Title,
+                p.document_number AS DocumentNumber,
                 p.description AS Description,
                 p.type AS Type,
                 p.status AS Status,
@@ -215,12 +217,12 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
     {
         const string sql = """
             INSERT INTO dbo.Projects (
-                title, description, type, status, priority, project_manager_id,
+                title, document_number, description, type, status, priority, project_manager_id,
                 responsible_department_id, beneficiary_department_id, budget, actual_cost,
                 start_date, end_date, created_at, updated_at
             )
             VALUES (
-                @Title, @Description, @Type, @Status, @Priority, @ProjectManagerId,
+                @Title, @DocumentNumber, @Description, @Type, @Status, @Priority, @ProjectManagerId,
                 @ResponsibleDepartmentId, @BeneficiaryDepartmentId, @Budget, @ActualCost,
                 @StartDate, @EndDate, @CreatedAt, @UpdatedAt
             );
@@ -238,6 +240,7 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             UPDATE dbo.Projects
             SET
                 title = @Title,
+                document_number = @DocumentNumber,
                 description = @Description,
                 type = @Type,
                 status = @Status,
@@ -335,6 +338,7 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             SELECT TOP (5)
                 eu.id AS Id,
                 eu.project_id AS ProjectId,
+                eu.title AS Title,
                 eu.content AS Content,
                 eu.update_type AS UpdateType,
                 eu.created_by_id AS CreatedById,
@@ -456,6 +460,7 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             SELECT TOP (8)
                 eu.id AS Id,
                 eu.project_id AS ProjectId,
+                eu.title AS Title,
                 eu.content AS Content,
                 eu.update_type AS UpdateType,
                 eu.created_by_id AS CreatedById,
@@ -810,6 +815,7 @@ public sealed class ExecutiveUpdateRepository(ISqlConnectionFactory connectionFa
             SELECT
                 eu.id AS Id,
                 eu.project_id AS ProjectId,
+                eu.title AS Title,
                 eu.content AS Content,
                 eu.update_type AS UpdateType,
                 eu.created_by_id AS CreatedById,
@@ -831,6 +837,7 @@ public sealed class ExecutiveUpdateRepository(ISqlConnectionFactory connectionFa
             SELECT TOP (@Take)
                 eu.id AS Id,
                 eu.project_id AS ProjectId,
+                eu.title AS Title,
                 eu.content AS Content,
                 eu.update_type AS UpdateType,
                 eu.created_by_id AS CreatedById,
@@ -848,8 +855,8 @@ public sealed class ExecutiveUpdateRepository(ISqlConnectionFactory connectionFa
     public async Task<int> CreateUpdateAsync(ExecutiveUpdateEntity update, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            INSERT INTO dbo.ExecutiveUpdates (project_id, content, update_type, created_by_id, created_at)
-            VALUES (@ProjectId, @Content, @UpdateType, @CreatedById, @CreatedAt);
+            INSERT INTO dbo.ExecutiveUpdates (project_id, title, content, update_type, created_by_id, created_at)
+            VALUES (@ProjectId, @Title, @Content, @UpdateType, @CreatedById, @CreatedAt);
 
             SELECT CAST(SCOPE_IDENTITY() AS INT);
             """;

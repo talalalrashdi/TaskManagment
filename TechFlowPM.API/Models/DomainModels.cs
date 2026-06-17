@@ -49,6 +49,7 @@ public sealed class ProjectEntity
 {
     public int Id { get; init; }
     public string Title { get; init; } = string.Empty;
+    public string? DocumentNumber { get; init; }
     public string Description { get; init; } = string.Empty;
     public string Type { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
@@ -118,6 +119,7 @@ public sealed class ExecutiveUpdateEntity
 {
     public int Id { get; init; }
     public int ProjectId { get; init; }
+    public string? Title { get; init; }
     public string Content { get; init; } = string.Empty;
     public string UpdateType { get; init; } = string.Empty;
     public int CreatedById { get; init; }

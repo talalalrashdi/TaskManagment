@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -31,7 +29,9 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import { createProjectHubConnection } from "@/lib/signalr";
 import { Button, Input, Select } from "@/components/ui/primitives";
+import { useAuthStore } from "@/store/auth-store";
 import { cn, formatCurrency, formatDate, percentage } from "@/lib/utils";
 import type { ExecutiveUpdate, PagedResult, Project, ProjectDetail, Task } from "@/types/domain";
 
@@ -118,26 +118,12 @@ type DirectorExecutiveFeedItem = {
   id: string;
   projectId: number;
   projectTitle: string;
+  title?: string | null;
   content: string;
   updateType: ExecutiveUpdate["updateType"];
   createdByName?: string | null;
   createdAt: string;
 };
-
-const monthLabels = [
-  "يناير",
-  "فبراير",
-  "مارس",
-  "أبريل",
-  "مايو",
-  "يونيو",
-  "يوليو",
-  "أغسطس",
-  "سبتمبر",
-  "أكتوبر",
-  "نوفمبر",
-  "ديسمبر",
-];
 
 const directorAsideTabs = [
   { key: "calendar" as const, label: "التقويم", icon: CalendarDays },
@@ -220,7 +206,7 @@ function translateTaskStatus(status: Task["status"]) {
   if (status === "InProgress") return "قيد التنفيذ";
   if (status === "Review") return "مراجعة";
   if (status === "Done") return "منتهية";
-  return "متعثرة";
+  return "توجد مشكلة";
 }
 
 function isCompletedProject(project: Project) {
@@ -358,13 +344,6 @@ function translateCalendarEventType(type: DirectorCalendarEventType) {
       other: "أخرى",
     }[type] ?? "أخرى"
   );
-}
-
-function getMonthRange(year: number, monthIndex: number) {
-  return {
-    start: new Date(year, monthIndex, 1),
-    end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999),
-  };
 }
 
 function formatArabicNumber(value: number) {
@@ -853,7 +832,7 @@ function DirectorCalendarAside({
         <div className="mt-8">
           <DirectorAsideEmptyState
             title="المهام الشخصية موجودة في الصفحات التشغيلية"
-            description="هذا التبويب ظاهر للحفاظ على نفس تركيب اللوحة الجانبية ويمكن توسيعه لاحقاً داخل صفحة مدير الدائرة."
+            description="هذا التبويب ظاهر للحفاظ على نفس تركيب اللوحة الجانبية ويمكن توسيعه لاحقاً داخل صفحة رئيس الدائرة."
           />
         </div>
       )}
@@ -943,6 +922,7 @@ function DirectorExecutiveUpdateCard({ update }: { update: DirectorExecutiveFeed
               {translateUpdateType(update.updateType)}
             </span>
           </div>
+          {update.title ? <p className="mt-3 text-[15px] font-bold text-[#172228]">{update.title}</p> : null}
           <p className="mt-3 text-[14px] leading-7 text-[#55646a]">{update.content}</p>
         </div>
       </div>
@@ -960,6 +940,8 @@ function DirectorAsideEmptyState({ title, description }: { title: string; descri
 }
 
 export default function DirectorDashboardPage() {
+  const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentFilter>("all");
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1012,6 +994,42 @@ export default function DirectorDashboardPage() {
       staleTime: 60_000,
     })),
   });
+
+  useEffect(() => {
+    if (!token || allProjects.length === 0) {
+      return;
+    }
+
+    const connection = createProjectHubConnection(token);
+    let mounted = true;
+
+    connection.on("task:statusChanged", (payload: { projectId: number }) => {
+      void queryClient.invalidateQueries({ queryKey: ["director-project-tasks", payload.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["director-project-detail", payload.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    });
+
+    connection.on("project:updateAdded", (update: ExecutiveUpdate) => {
+      void queryClient.invalidateQueries({ queryKey: ["director-project-detail", update.projectId] });
+    });
+
+    void connection
+      .start()
+      .then(async () => {
+        if (mounted) {
+          await Promise.all(allProjects.map((project) => connection.invoke("JoinProject", project.id)));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+      void Promise.all(allProjects.map((project) => connection.invoke("LeaveProject", project.id).catch(() => undefined)))
+        .finally(() => {
+          void connection.stop();
+        });
+    };
+  }, [allProjects, queryClient, token]);
 
   const details = useMemo(
     () => projectDetailsQueries.map((query) => query.data).filter(isProjectDetail),
@@ -1240,17 +1258,6 @@ export default function DirectorDashboardPage() {
     ];
   }, [departmentSnapshots, referenceDate, tasksByProjectId, yearScopedDetails, yearScopedProjects]);
 
-  const departmentChartData = useMemo(
-    () =>
-      visibleDepartmentPerformance.map((department) => ({
-        name: department.shortName,
-        الإنجاز: department.progress,
-        المخاطر: department.risk,
-        المتأخرة: department.overdue,
-      })),
-    [visibleDepartmentPerformance],
-  );
-
   const taskFlowData = useMemo(
     () =>
       visibleDepartmentPerformance.map((department) => ({
@@ -1259,7 +1266,7 @@ export default function DirectorDashboardPage() {
         "قيد التنفيذ": department.inProgress,
         مراجعة: department.review,
         منتهية: department.done,
-        متعثرة: department.blocked,
+        "توجد مشكلة": department.blocked,
       })),
     [visibleDepartmentPerformance],
   );
@@ -1344,31 +1351,6 @@ export default function DirectorDashboardPage() {
       percent: total ? clampPercentage((dominant.value / total) * 100) : 0,
     };
   }, [statusChartData]);
-
-  const portfolioTrendData = useMemo(
-    () =>
-      monthLabels.map((label, index) => {
-        const { start, end } = getMonthRange(selectedYear, index);
-
-        return {
-          month: label,
-          active: filteredProjects.filter((project) => {
-            const projectStart = new Date(project.startDate);
-            const projectEnd = new Date(project.endDate);
-            return projectStart.getTime() <= end.getTime() && projectEnd.getTime() >= start.getTime();
-          }).length,
-          starts: filteredProjects.filter((project) => {
-            const projectStart = new Date(project.startDate);
-            return projectStart.getFullYear() === selectedYear && projectStart.getMonth() === index;
-          }).length,
-          deliveries: filteredProjects.filter((project) => {
-            const projectEnd = new Date(project.endDate);
-            return projectEnd.getFullYear() === selectedYear && projectEnd.getMonth() === index;
-          }).length,
-        };
-      }),
-    [filteredProjects, selectedYear],
-  );
 
   const workloadData = useMemo(() => {
     const projectTitleById = new Map(filteredProjects.map((project) => [project.id, project.title]));
@@ -1464,6 +1446,7 @@ export default function DirectorDashboardPage() {
           id: `director-update-${update.id}`,
           projectId: detail.project.id,
           projectTitle: detail.project.title,
+          title: update.title,
           content: update.content,
           updateType: update.updateType,
           createdByName: update.createdByName,
@@ -1559,7 +1542,7 @@ export default function DirectorDashboardPage() {
         dateKey: event.dateKey,
         accent: getCalendarEventAccent(event.type),
         sortValue: timeMinutes,
-        note: "حدث تمت إضافته من صفحة مدير الدائرة",
+        note: "حدث تمت إضافته من صفحة رئيس الدائرة",
       } satisfies DirectorScheduleItem;
     });
 
@@ -1636,7 +1619,10 @@ export default function DirectorDashboardPage() {
             aria-label={isAsideCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
           >
-            {isAsideCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <span className="flex items-center gap-0.5">
+              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </span>
           </button>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -1656,7 +1642,7 @@ export default function DirectorDashboardPage() {
             </Link>
             <span className="inline-flex h-10 items-center rounded-full bg-[#0d7573] px-4 text-[13px] font-semibold text-white shadow-[0_20px_36px_-24px_rgba(13,117,115,0.7)]">
               <Sparkles className="ml-2 h-4 w-4" />
-              مدير الدائرة
+              رئيس الدائرة
             </span>
           </div>
 
@@ -1726,11 +1712,11 @@ export default function DirectorDashboardPage() {
                 <p className="text-[12px] font-semibold text-white/70">المشهد التنفيذي</p>
                 <p className="mt-3 text-[30px] font-semibold tracking-[-0.05em]">{attentionBoard.length}</p>
                 <p className="mt-2 text-[13px] leading-6 text-white/75">
-                  مشروع يحتاج إلى متابعة قريبة بسبب التأخير أو التعثّر أو اقتراب نهاية المدة.
+                  مشروع يحتاج إلى متابعة قريبة بسبب التأخير أو وجود مشكلة أو اقتراب نهاية المدة.
                 </p>
                 <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-[12px] font-semibold text-white/90">
                   <TriangleAlert className="h-4 w-4" />
-                  {blockedTasksCount} مهام متعثرة
+                  {blockedTasksCount} مهام توجد بها مشكلة
                 </div>
               </div>
 
@@ -1948,67 +1934,6 @@ export default function DirectorDashboardPage() {
 
             <DirectorSection
               className="mb-6"
-              title="الحركة الزمنية للمشاريع"
-              subtitle="مقارنة بين المشاريع النشطة والبدايات والتسليمات خلال أشهر السنة."
-              collapsible
-              action={
-                <span className="inline-flex items-center rounded-full bg-[#f4f7f8] px-3 py-1 text-[12px] font-semibold text-[#617278]">
-                  سنة {selectedYear}
-                </span>
-              }
-            >
-              {filteredProjects.length ? (
-                <>
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {[
-                      { label: "نشطة", color: "#0d7573" },
-                      { label: "بدايات", color: "#5c6bd8" },
-                      { label: "تسليمات", color: "#ef7c61" },
-                    ].map((item) => (
-                      <span key={item.label} className="inline-flex items-center gap-2 rounded-full bg-[#f7fbfb] px-3 py-1 text-[12px] font-semibold text-[#607277]">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                        {item.label}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="h-[320px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={portfolioTrendData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="directorActive" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#0d7573" stopOpacity={0.32} />
-                            <stop offset="95%" stopColor="#0d7573" stopOpacity={0.02} />
-                          </linearGradient>
-                          <linearGradient id="directorStarts" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#5c6bd8" stopOpacity={0.22} />
-                            <stop offset="95%" stopColor="#5c6bd8" stopOpacity={0.01} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke="#dfe8e9" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} />
-                        <YAxis tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: "18px",
-                            border: "1px solid rgba(228,236,237,1)",
-                            boxShadow: "0 22px 42px -32px rgba(12,54,58,0.24)",
-                            direction: "rtl",
-                          }}
-                        />
-                        <Area type="monotone" dataKey="active" stroke="#0d7573" fill="url(#directorActive)" strokeWidth={3} />
-                        <Area type="monotone" dataKey="starts" stroke="#5c6bd8" fill="url(#directorStarts)" strokeWidth={2.5} />
-                        <Bar dataKey="deliveries" fill="#ef7c61" radius={[10, 10, 0, 0]} barSize={18} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </>
-              ) : (
-                <DirectorEmptyState message="لا توجد مشاريع ضمن نطاق العرض الحالي لبناء نبض زمني واضح." />
-              )}
-            </DirectorSection>
-
-            <DirectorSection
-              className="mb-6"
               title="حركة المهام عبر الأقسام"
               subtitle="تجميع لحظي لمراحل المهام داخل كل قسم لمعرفة أين تتكدس الأعمال."
               collapsible
@@ -2032,7 +1957,7 @@ export default function DirectorDashboardPage() {
                       <Bar dataKey="قيد التنفيذ" stackId="tasks" fill={taskPalette.InProgress} />
                       <Bar dataKey="مراجعة" stackId="tasks" fill={taskPalette.Review} />
                       <Bar dataKey="منتهية" stackId="tasks" fill={taskPalette.Done} />
-                      <Bar dataKey="متعثرة" stackId="tasks" fill={taskPalette.Blocked} radius={[10, 10, 0, 0]} />
+                      <Bar dataKey="توجد مشكلة" stackId="tasks" fill={taskPalette.Blocked} radius={[10, 10, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -2045,8 +1970,8 @@ export default function DirectorDashboardPage() {
               <div className="grid items-start gap-8 xl:grid-cols-2">
                 <DirectorSection
                   className="h-full"
-                  title="صحة المشاريع"
-                  subtitle="مؤشر سريع يدمج الإنجاز العام، إغلاق المهام، ومستوى المخاطر."
+                  title="مؤشر الإنجاز"
+                  subtitle="قراءة مركزة لمستوى الإنجاز وكفاءة إغلاق المهام واستهلاك الميزانية."
                   collapsible
                 >
               <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr] xl:grid-cols-[0.88fr_1.12fr]">
@@ -2060,7 +1985,7 @@ export default function DirectorDashboardPage() {
                     <div className="absolute inset-[16px] rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(223,234,235,0.9)]" />
                     <div className="absolute inset-0 grid place-items-center">
                       <div>
-                        <p className="text-[12px] font-semibold text-[#7b8b90]">صحة المشاريع</p>
+                        <p className="text-[12px] font-semibold text-[#7b8b90]">مؤشر الإنجاز</p>
                         <p className="mt-2 text-[34px] font-semibold tracking-[-0.05em] text-[#12262b]">
                           {portfolioHealth}
                         </p>
@@ -2072,11 +1997,6 @@ export default function DirectorDashboardPage() {
 
                 <div className="space-y-3">
                   {[
-                    {
-                      label: "معدل الإنجاز العام",
-                      value: averageProgress,
-                      tone: "#0d7573",
-                    },
                     {
                       label: "كفاءة إغلاق المهام",
                       value: filteredTasks.length ? clampPercentage((doneTasksCount / filteredTasks.length) * 100) : 0,
@@ -2260,7 +2180,7 @@ export default function DirectorDashboardPage() {
                           متأخرة {project.overdue}
                         </span>
                         <span className="rounded-full bg-[#fff1ec] px-3 py-1 font-semibold text-[#cf6247]">
-                          متعثرة {project.blocked}
+                          توجد مشكلة {project.blocked}
                         </span>
                         <span className="rounded-full bg-[#eef4ff] px-3 py-1 font-semibold text-[#5c6bd8]">
                           ينتهي {project.dueDate}
@@ -2278,81 +2198,6 @@ export default function DirectorDashboardPage() {
                 </DirectorSection>
               </div>
             </div>
-
-            <DirectorSection
-              className="mb-6 mt-8"
-              title="أداء الأقسام"
-              subtitle="مقارنة مستوى الإنجاز والحمل التشغيلي بين الأقسام التابعة للدائرة."
-              collapsible
-            >
-              {visibleDepartmentPerformance.length ? (
-                <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                  <div className="space-y-3">
-                    {visibleDepartmentPerformance.map((department) => (
-                      <div
-                        key={department.id}
-                        className="rounded-[24px] border border-[#edf2f3] bg-[#fbfdfd] px-4 py-4 shadow-[0_18px_32px_-30px_rgba(12,54,58,0.2)]"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: department.color }} />
-                              <p className="text-[15px] font-semibold text-[#172228]">{department.name}</p>
-                            </div>
-                            <p className="mt-2 text-[12px] text-[#819095]">
-                              {formatProjectCountLabel(department.projectCount)} • {formatArabicNumber(department.members)} عضو • {formatArabicNumber(department.completedCount)} مكتمل
-                            </p>
-                          </div>
-                          <div className="rounded-full px-3 py-1 text-[12px] font-semibold" style={{ backgroundColor: department.soft, color: department.deep }}>
-                            {percentage(department.progress)}
-                          </div>
-                        </div>
-                        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#e5ecec]">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${department.progress}%`, background: `linear-gradient(90deg, ${department.color} 0%, ${department.deep} 100%)` }}
-                          />
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[12px]">
-                          <span className="rounded-full bg-[#f4f7f8] px-3 py-1 font-semibold text-[#617278]">
-                            نشطة {department.activeCount}
-                          </span>
-                          <span className="rounded-full bg-[#fff8df] px-3 py-1 font-semibold text-[#b98800]">
-                            متأخرة {department.overdue}
-                          </span>
-                          <span className="rounded-full bg-[#fff1ec] px-3 py-1 font-semibold text-[#cf6247]">
-                            مخاطر {department.risk}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="h-[360px] rounded-[26px] bg-[#f9fcfc] p-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={departmentChartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                        <CartesianGrid stroke="#e0e8e9" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} />
-                        <YAxis tickLine={false} axisLine={false} tick={{ fill: "#6f7f84", fontSize: 12 }} />
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: "18px",
-                            border: "1px solid rgba(228,236,237,1)",
-                            boxShadow: "0 22px 42px -32px rgba(12,54,58,0.24)",
-                            direction: "rtl",
-                          }}
-                        />
-                        <Bar dataKey="الإنجاز" fill="#0d7573" radius={[12, 12, 0, 0]} />
-                        <Bar dataKey="المخاطر" fill="#ef7c61" radius={[12, 12, 0, 0]} />
-                        <Bar dataKey="المتأخرة" fill="#f0b819" radius={[12, 12, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              ) : (
-                <DirectorEmptyState message="لا توجد بيانات أداء أقسام كافية ضمن الفلاتر الحالية." />
-              )}
-            </DirectorSection>
 
           </div>
         </section>

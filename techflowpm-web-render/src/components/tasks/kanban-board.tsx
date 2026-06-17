@@ -13,7 +13,7 @@ const statusLabels: Record<Task["status"], string> = {
   InProgress: "قيد التنفيذ",
   Review: "قيد المراجعة",
   Done: "منجزة",
-  Blocked: "متعثر",
+  Blocked: "توجد مشكلة",
 };
 
 const priorityLabels: Record<Task["priority"], string> = {
@@ -140,7 +140,7 @@ export function KanbanBoard({ tasks, movingTaskId, onMove }: Props) {
                   {task.status === "Blocked" ? (
                     <span className="inline-flex items-center gap-1 text-[var(--danger)]">
                       <AlertTriangle className="h-3.5 w-3.5" />
-                      متعثر
+                      توجد مشكلة
                     </span>
                   ) : null}
                 </div>

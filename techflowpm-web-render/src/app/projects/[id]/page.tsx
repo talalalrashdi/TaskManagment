@@ -69,6 +69,21 @@ const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
   { key: "overview", label: "نظرة عامة", icon: LayoutDashboard },
 ];
 
+const demoMaleDisplayNames: Record<string, string> = {
+  "Fatma Al-Harthi": "طلال الراشدي",
+  "خالد الحارثي": "طلال الراشدي",
+  "Saeed Al-Balushi": "سعيد السلامي",
+  "سعيد البلوشي": "سعيد السلامي",
+  "Aisha Al-Rawahi": "محمد النعماني",
+  "عبدالله الرواحي": "محمد النعماني",
+  "Mohammed Al-Qahtani": "خالد البوسعيدي",
+  "محمد القحطاني": "خالد البوسعيدي",
+};
+
+function getDisplayUserName(name: string) {
+  return demoMaleDisplayNames[name] ?? name;
+}
+
 export default function ProjectDetailsPage() {
   const params = useParams<{ id: string }>();
   const projectId = Number(params.id);
@@ -143,8 +158,13 @@ export default function ProjectDetailsPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-updates", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }),
         queryClient.invalidateQueries({ queryKey: ["project-summary", projectId] }),
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["director-project-detail", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
       ]);
     },
   });
@@ -244,7 +264,16 @@ export default function ProjectDetailsPage() {
     () => updatesQuery.data ?? projectQuery.data?.recentUpdates ?? [],
     [projectQuery.data?.recentUpdates, updatesQuery.data],
   );
-  const users = useMemo(() => usersQuery.data?.items ?? [], [usersQuery.data?.items]);
+  const users = useMemo(
+    () => (usersQuery.data?.items ?? []).map((user) => ({ ...user, name: getDisplayUserName(user.name) })),
+    [usersQuery.data?.items],
+  );
+  const assignableUsers = useMemo(() => {
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    return members
+      .map((member) => usersById.get(member.userId))
+      .filter((user): user is User => Boolean(user));
+  }, [members, users]);
   const selectableUsers = useMemo(() => {
     const memberUserIds = new Set(members.map((member) => member.userId));
     return users.filter((user) => !memberUserIds.has(user.id));
@@ -336,7 +365,10 @@ export default function ProjectDetailsPage() {
               aria-label={isSidePanelCollapsed ? "توسيع اللوحة الجانبية" : "تقليص اللوحة الجانبية"}
               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
             >
-              {isSidePanelCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <span className="flex items-center gap-0.5">
+                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </span>
             </button>
 
             <div className="flex flex-wrap items-center justify-end gap-3">
@@ -424,7 +456,7 @@ export default function ProjectDetailsPage() {
           {tab === "tasks" ? (
             <div className="mt-9">
               <TaskCreatePanel
-                users={users}
+                users={assignableUsers}
                 taskForm={taskForm}
                 setTaskForm={setTaskForm}
                 isSaving={createTaskMutation.isPending}
@@ -760,7 +792,7 @@ function OverviewTab({
             <TaskMiniMetric label="الإجمالي" value={taskStats.total} color="#0d7573" />
             <TaskMiniMetric label="قيد التنفيذ" value={taskStats.inProgress} color="#f0b819" />
             <TaskMiniMetric label="مراجعة" value={taskStats.review} color="#5c6bd8" />
-            <TaskMiniMetric label="متعثر" value={taskStats.blocked} color="#ef7c61" />
+            <TaskMiniMetric label="توجد مشكلة" value={taskStats.blocked} color="#ef7c61" />
           </div>
         </Panel>
 
@@ -850,10 +882,9 @@ function TaskCreatePanel({
                 <option value="InProgress">قيد التنفيذ</option>
                 <option value="Review">مراجعة</option>
                 <option value="Done">منجزة</option>
-                <option value="Blocked">متعثر</option>
+                <option value="Blocked">توجد مشكلة</option>
               </Select>
               <Select value={taskForm.priority} onChange={(event) => setTaskForm((current) => ({ ...current, priority: event.target.value }))}>
-                <option value="Low">منخفضة</option>
                 <option value="Medium">متوسطة</option>
                 <option value="High">عالية</option>
                 <option value="Critical">حرجة</option>
@@ -1237,6 +1268,9 @@ function ExecutiveUpdateCard({
           </p>
         </div>
       </div>
+      {update.title ? (
+        <p className="mt-3 text-[15px] font-semibold leading-7 text-[#172228]">{update.title}</p>
+      ) : null}
       <p className="mt-3 text-[14px] leading-7 text-[#56656b]">{update.content}</p>
       {onDelete ? (
         <div className="mt-3 flex justify-end">

@@ -395,6 +395,7 @@ public sealed class ProjectService(
         var description = string.IsNullOrWhiteSpace(request.Description)
             ? "تم إنشاء هذا المشروع من لوحة التحكم."
             : request.Description.Trim();
+        var documentNumber = string.IsNullOrWhiteSpace(request.DocumentNumber) ? null : request.DocumentNumber.Trim();
         var type = ValidationRuleSet.BeProjectType(request.Type) ? request.Type : "Software";
         var status = ValidationRuleSet.BeProjectStatus(request.Status) ? request.Status : "Planning";
         var priority = ValidationRuleSet.BePriority(request.Priority) ? request.Priority : "Medium";
@@ -403,6 +404,7 @@ public sealed class ProjectService(
             new ProjectEntity
             {
                 Title = title,
+                DocumentNumber = documentNumber,
                 Description = description,
                 Type = type,
                 Status = status,
@@ -436,6 +438,7 @@ public sealed class ProjectService(
         {
             Id = id,
             Title = request.Title.Trim(),
+            DocumentNumber = string.IsNullOrWhiteSpace(request.DocumentNumber) ? null : request.DocumentNumber.Trim(),
             Description = request.Description.Trim(),
             Type = request.Type,
             Status = request.Status,
@@ -604,6 +607,7 @@ public sealed class ProjectService(
             new ExecutiveUpdateEntity
             {
                 ProjectId = projectId,
+                Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
                 Content = request.Content.Trim(),
                 UpdateType = request.UpdateType,
                 CreatedById = createdBy,
@@ -687,6 +691,7 @@ public sealed class ProjectService(
 public sealed class TaskService(
     ITaskRepository taskRepository,
     IProjectRepository projectRepository,
+    IExecutiveUpdateRepository executiveUpdateRepository,
     INotificationRepository notificationRepository,
     IAuditLogRepository auditLogRepository,
     ICurrentUserService currentUserService,
@@ -801,6 +806,7 @@ public sealed class TaskService(
     {
         var task = await taskRepository.GetTaskByIdAsync(id, cancellationToken)
             ?? throw new AppException("Task not found.", StatusCodes.Status404NotFound);
+        var shouldCreateCompletionUpdate = task.Status != "Done" && request.Status == "Done";
 
         await EnsureTaskStatusRightsAsync(task, cancellationToken);
         var updated = await taskRepository.UpdateTaskStatusAsync(id, request.Status, cancellationToken);
@@ -812,12 +818,23 @@ public sealed class TaskService(
         var refreshedTask = await taskRepository.GetTaskByIdAsync(id, cancellationToken)
             ?? throw new AppException("Task not found.", StatusCodes.Status404NotFound);
 
+        ExecutiveUpdateDto? completionUpdate = null;
+        if (shouldCreateCompletionUpdate)
+        {
+            completionUpdate = await CreateCompletionExecutiveUpdateAsync(refreshedTask, cancellationToken);
+        }
+
         await hubContext.Clients.Group(HubGroups.Project(task.ProjectId)).SendAsync("task:statusChanged", new
         {
             projectId = task.ProjectId,
             taskId = id,
             status = request.Status
         }, cancellationToken);
+
+        if (completionUpdate is not null)
+        {
+            await hubContext.Clients.Group(HubGroups.Project(task.ProjectId)).SendAsync("project:updateAdded", completionUpdate, cancellationToken);
+        }
 
         await WriteAuditAsync("TaskStatusChanged", "Task", id.ToString(), request, cancellationToken);
         InvalidateCaches();
@@ -905,6 +922,42 @@ public sealed class TaskService(
         }
 
         await hubContext.Clients.Group(HubGroups.Project(projectId)).SendAsync(eventName, task.ToDto(), cancellationToken);
+    }
+
+    private async Task<ExecutiveUpdateDto> CreateCompletionExecutiveUpdateAsync(ProjectTaskEntity task, CancellationToken cancellationToken)
+    {
+        var createdBy = currentUserService.UserId ?? throw new AppException("Unauthorized.", StatusCodes.Status401Unauthorized);
+        var updateId = await executiveUpdateRepository.CreateUpdateAsync(
+            new ExecutiveUpdateEntity
+            {
+                ProjectId = task.ProjectId,
+                Title = task.Title.Trim(),
+                Content = BuildCompletionExecutiveContent(task),
+                UpdateType = "Achievement",
+                CreatedById = createdBy,
+                CreatedAt = DateTime.UtcNow
+            },
+            cancellationToken);
+
+        var update = (await executiveUpdateRepository.GetProjectUpdatesAsync(task.ProjectId, cancellationToken))
+            .Single(item => item.Id == updateId);
+
+        await WriteAuditAsync(
+            "ProjectUpdateAutoAdded",
+            "ExecutiveUpdate",
+            updateId.ToString(),
+            new { taskId = task.Id, taskTitle = task.Title, source = "TaskCompleted" },
+            cancellationToken);
+
+        return update.ToDto();
+    }
+
+    private static string BuildCompletionExecutiveContent(ProjectTaskEntity task)
+    {
+        var description = task.Description.Trim();
+        return string.IsNullOrWhiteSpace(description)
+            ? $"تم إنجاز المهمة \"{task.Title.Trim()}\"."
+            : description;
     }
 
     private static IReadOnlyCollection<int> ResolveAssignedUserIds(IReadOnlyCollection<int>? assignedUserIds, int? assignedToId)
@@ -1282,11 +1335,42 @@ public sealed class DeviceAdminService(
 
 internal static class ServiceMappings
 {
+    private static string? NormalizeDisplayName(string? name, string? email = null)
+    {
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            return email.Trim().ToLowerInvariant() switch
+            {
+                "fatma@techflow.local" => "طلال الراشدي",
+                "saeed@techflow.local" => "سعيد السلامي",
+                "aisha@techflow.local" => "محمد النعماني",
+                "mohammed@techflow.local" => "خالد البوسعيدي",
+                "nasser@techflow.local" => "ناصر الشهري",
+                "faisal@techflow.local" => "فيصل العتيبي",
+                "majed@techflow.local" => "ماجد السهلي",
+                _ => name
+            };
+        }
+
+        return name switch
+        {
+            "Fatma Al-Harthi" => "طلال الراشدي",
+            "خالد الحارثي" => "طلال الراشدي",
+            "Saeed Al-Balushi" => "سعيد السلامي",
+            "سعيد البلوشي" => "سعيد السلامي",
+            "Aisha Al-Rawahi" => "محمد النعماني",
+            "عبدالله الرواحي" => "محمد النعماني",
+            "Mohammed Al-Qahtani" => "خالد البوسعيدي",
+            "محمد القحطاني" => "خالد البوسعيدي",
+            _ => name
+        };
+    }
+
     public static UserDto ToDto(this UserEntity entity)
-        => new(entity.Id, entity.Name, entity.Email, entity.Role, entity.Avatar, entity.DepartmentId, entity.DepartmentName, entity.DepartmentType, entity.CreatedAt);
+        => new(entity.Id, NormalizeDisplayName(entity.Name, entity.Email) ?? entity.Name, entity.Email, entity.Role, entity.Avatar, entity.DepartmentId, entity.DepartmentName, entity.DepartmentType, entity.CreatedAt);
 
     public static ProjectMemberDto ToDto(this ProjectMemberEntity entity)
-        => new(entity.Id, entity.ProjectId, entity.UserId, entity.RoleInProject, entity.JoinedAt, entity.UserName, entity.UserEmail, entity.UserAvatar);
+        => new(entity.Id, entity.ProjectId, entity.UserId, entity.RoleInProject, entity.JoinedAt, NormalizeDisplayName(entity.UserName, entity.UserEmail) ?? entity.UserName, entity.UserEmail, entity.UserAvatar);
 
     public static TaskDto ToDto(this ProjectTaskEntity entity)
         => new(
@@ -1295,10 +1379,10 @@ internal static class ServiceMappings
             entity.Title,
             entity.Description,
             entity.AssignedToId,
-            entity.AssignedToName,
-            entity.Assignees.Select(static assignee => new TaskAssigneeDto(assignee.UserId, assignee.UserName, assignee.UserEmail, assignee.UserAvatar)).ToArray(),
+            NormalizeDisplayName(entity.AssignedToName),
+            entity.Assignees.Select(static assignee => new TaskAssigneeDto(assignee.UserId, NormalizeDisplayName(assignee.UserName, assignee.UserEmail) ?? assignee.UserName, assignee.UserEmail, assignee.UserAvatar)).ToArray(),
             entity.CreatedById,
-            entity.CreatedByName,
+            NormalizeDisplayName(entity.CreatedByName),
             entity.Status,
             entity.Priority,
             entity.DueDate,
@@ -1308,13 +1392,13 @@ internal static class ServiceMappings
             entity.CreatedAt);
 
     public static ExecutiveUpdateDto ToDto(this ExecutiveUpdateEntity entity)
-        => new(entity.Id, entity.ProjectId, entity.Content, entity.UpdateType, entity.CreatedById, entity.CreatedByName, entity.CreatedAt);
+        => new(entity.Id, entity.ProjectId, entity.Title, entity.Content, entity.UpdateType, entity.CreatedById, NormalizeDisplayName(entity.CreatedByName), entity.CreatedAt);
 
     public static NotificationDto ToDto(this NotificationEntity entity)
         => new(entity.Id, entity.Title, entity.Message, entity.Type, entity.IsRead, entity.RelatedEntityType, entity.RelatedEntityId, entity.CreatedAt);
 
     public static RegisteredDeviceDto ToDto(this RegisteredDeviceEntity entity)
-        => new(entity.Id, entity.DeviceName, entity.UserId, entity.UserName, entity.UserEmail, entity.IsActive, entity.LastLogin, entity.RegisteredAt, entity.RegisteredBy, entity.RegisteredByName, entity.Notes);
+        => new(entity.Id, entity.DeviceName, entity.UserId, NormalizeDisplayName(entity.UserName, entity.UserEmail), entity.UserEmail, entity.IsActive, entity.LastLogin, entity.RegisteredAt, entity.RegisteredBy, NormalizeDisplayName(entity.RegisteredByName), entity.Notes);
 
     public static ProjectListItemDto ToListDto(this ProjectEntity entity)
     {
@@ -1322,12 +1406,13 @@ internal static class ServiceMappings
         return new ProjectListItemDto(
             entity.Id,
             entity.Title,
+            entity.DocumentNumber,
             entity.Description,
             entity.Type,
             entity.Status,
             entity.Priority,
             entity.ProjectManagerId,
-            entity.ProjectManagerName,
+            NormalizeDisplayName(entity.ProjectManagerName),
             entity.ResponsibleDepartmentId,
             entity.ResponsibleDepartmentName,
             entity.ResponsibleDepartmentColor,

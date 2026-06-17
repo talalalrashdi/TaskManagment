@@ -28,6 +28,7 @@ export type User = {
 export type Project = {
   id: number;
   title: string;
+  documentNumber?: string | null;
   description: string;
   type: "Software" | "Networks" | "Cybersecurity" | "Maintenance";
   status: "Planning" | "Active" | "OnHold" | "Completed" | "Cancelled";
@@ -92,6 +93,7 @@ export type Task = {
 export type ExecutiveUpdate = {
   id: number;
   projectId: number;
+  title?: string | null;
   content: string;
   updateType: "StatusUpdate" | "Milestone" | "Issue" | "Achievement";
   createdById: number;

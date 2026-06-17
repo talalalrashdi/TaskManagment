@@ -123,6 +123,7 @@ public sealed record TaskDto(
 public sealed record ExecutiveUpdateDto(
     int Id,
     int ProjectId,
+    string? Title,
     string Content,
     string UpdateType,
     int CreatedById,
@@ -172,6 +173,7 @@ public sealed record RegisteredDeviceDto(
 public sealed record ProjectListItemDto(
     int Id,
     string Title,
+    string? DocumentNumber,
     string Description,
     string Type,
     string Status,
@@ -250,6 +252,7 @@ public sealed record AuthResponse(
 
 public sealed record CreateProjectRequest(
     string Title,
+    string? DocumentNumber,
     string Description,
     string Type,
     string Status,
@@ -264,6 +267,7 @@ public sealed record CreateProjectRequest(
 
 public sealed record UpdateProjectRequest(
     string Title,
+    string? DocumentNumber,
     string Description,
     string Type,
     string Status,
@@ -302,7 +306,7 @@ public sealed record UpdateTaskRequest(
 
 public sealed record UpdateTaskStatusRequest(string Status);
 
-public sealed record CreateExecutiveUpdateRequest(string Content, string UpdateType);
+public sealed record CreateExecutiveUpdateRequest(string? Title, string Content, string UpdateType);
 
 public sealed record CreateLicenseRequest(
     string Name,
@@ -377,6 +381,7 @@ public sealed class CreateProjectRequestValidator : AbstractValidator<CreateProj
     public CreateProjectRequestValidator()
     {
         RuleFor(static request => request.Title).MaximumLength(200);
+        RuleFor(static request => request.DocumentNumber).MaximumLength(100);
         RuleFor(static request => request.Description).MaximumLength(4000);
         RuleFor(static request => request.Type)
             .Must(static value => string.IsNullOrWhiteSpace(value) || ValidationRuleSet.BeProjectType(value))
@@ -403,6 +408,7 @@ public sealed class UpdateProjectRequestValidator : AbstractValidator<UpdateProj
     public UpdateProjectRequestValidator()
     {
         RuleFor(static request => request.Title).NotEmpty().MaximumLength(200);
+        RuleFor(static request => request.DocumentNumber).MaximumLength(100);
         RuleFor(static request => request.Description).NotEmpty().MaximumLength(4000);
         RuleFor(static request => request.Type).Must(ValidationRuleSet.BeProjectType).WithMessage("Invalid project type.");
         RuleFor(static request => request.Status).Must(ValidationRuleSet.BeProjectStatus).WithMessage("Invalid project status.");
@@ -460,6 +466,7 @@ public sealed class CreateExecutiveUpdateRequestValidator : AbstractValidator<Cr
 {
     public CreateExecutiveUpdateRequestValidator()
     {
+        RuleFor(static request => request.Title).MaximumLength(200);
         RuleFor(static request => request.Content).NotEmpty().MaximumLength(4000);
         RuleFor(static request => request.UpdateType).Must(ValidationRuleSet.BeUpdateType).WithMessage("Invalid update type.");
     }
