@@ -14,6 +14,7 @@ import {
   Layers3,
   Pencil,
   Plus,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -1081,6 +1082,13 @@ export default function DashboardPage() {
               >
                 <Sparkles className="h-4 w-4 text-[#f0b819]" />
                 رئيس الدائرة
+              </Link>
+              <Link
+                href="/admin"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#0d7573] shadow-[0_18px_30px_-26px_rgba(10,76,74,0.28)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbfb]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                الإدارة
               </Link>
               <Link
                 href="/timeline"
@@ -2469,6 +2477,12 @@ function translateProjectStatus(status: Project["status"]) {
 
 function translateUserRole(role: User["role"]) {
   if (role === "Admin") return "مدير النظام";
+  if (role === "Department Chair") return "رئيس الدائرة";
+  if (role === "Chair Office") return "مكتب الرئيس";
+  if (role === "Department Director") return "مدير الدائرة";
+  if (role === "Section Head") return "رئيس القسم";
+  if (role === "Division Supervisor") return "مشرف شعبة";
+  if (role === "Division Member") return "عضو داخل شعبة";
   if (role === "Project Manager") return "مدير مشروع";
   if (role === "Member") return "عضو فريق";
   return "مشاهد";

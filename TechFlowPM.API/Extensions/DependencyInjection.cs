@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IDeviceLoginThrottleService, DeviceLoginThrottleService>();
 
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IExecutiveUpdateRepository, ExecutiveUpdateRepository>();
@@ -53,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<ILicenseService, LicenseService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IDeviceAdminService, DeviceAdminService>();
 
         ConfigureAuthentication(services, configuration);
@@ -231,7 +233,7 @@ public static class DependencyInjection
             options.AddPolicy(Policies.Management, policy => policy.RequireRole(SystemRoles.Admin, SystemRoles.ProjectManager));
             options.AddPolicy(
                 Policies.WorkspaceUser,
-                policy => policy.RequireRole(SystemRoles.Admin, SystemRoles.ProjectManager, SystemRoles.Member, SystemRoles.Viewer));
+                policy => policy.RequireRole(SystemRoles.All));
         });
     }
 

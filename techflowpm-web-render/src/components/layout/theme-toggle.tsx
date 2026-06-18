@@ -2,9 +2,10 @@
 
 import { MoonStar, SunMedium } from "lucide-react";
 import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/primitives";
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -12,7 +13,7 @@ export function ThemeToggle() {
     <Button
       variant="secondary"
       size="sm"
-      className="rounded-2xl px-3"
+      className={cn("rounded-2xl px-3", className)}
       onClick={() => setTheme(isDark ? "light" : "dark")}
       aria-label="Toggle theme"
     >

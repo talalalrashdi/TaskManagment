@@ -17,6 +17,7 @@ public static class RouteMappings
         MapTasks(api);
         MapLicenses(api);
         MapUsers(api);
+        MapDepartments(api);
         MapNotifications(api);
         MapDevices(api);
 
@@ -399,7 +400,10 @@ public static class RouteMappings
 
     private static void MapUsers(RouteGroupBuilder api)
     {
-        api.MapGet("/users", async (
+        var users = api.MapGroup("/users")
+            .WithTags("Users");
+
+        users.MapGet("/", async (
             [AsParameters] UserQueryParameters query,
             IUserService userService,
             CancellationToken cancellationToken) =>
@@ -407,10 +411,69 @@ public static class RouteMappings
             var data = await userService.GetUsersAsync(query, cancellationToken);
             return Results.Ok(ApiResponse<PagedResult<UserDto>>.SuccessResponse(data, "Users loaded successfully."));
         })
-        .WithTags("Users")
         .WithName("GetUsers")
         .WithSummary("Get employees list.")
         .RequireAuthorization(Policies.WorkspaceUser);
+
+        users.MapPost("/", async (
+            CreateUserRequest request,
+            IValidator<CreateUserRequest> validator,
+            IUserService userService,
+            CancellationToken cancellationToken) =>
+        {
+            await validator.ValidateAndThrowAsync(request, cancellationToken);
+            var data = await userService.CreateUserAsync(request, cancellationToken);
+            return Results.Created($"/api/v1/users/{data.Id}", ApiResponse<UserDto>.SuccessResponse(data, "User created successfully."));
+        })
+        .WithName("CreateUser")
+        .WithSummary("Create a new system user.")
+        .RequireAuthorization(Policies.AdminOnly);
+
+        users.MapPut("/{id:int}", async (
+            int id,
+            UpdateUserRequest request,
+            IValidator<UpdateUserRequest> validator,
+            IUserService userService,
+            CancellationToken cancellationToken) =>
+        {
+            await validator.ValidateAndThrowAsync(request, cancellationToken);
+            var data = await userService.UpdateUserAsync(id, request, cancellationToken);
+            return Results.Ok(ApiResponse<UserDto>.SuccessResponse(data, "User updated successfully."));
+        })
+        .WithName("UpdateUser")
+        .WithSummary("Update an existing user.")
+        .RequireAuthorization(Policies.AdminOnly);
+    }
+
+    private static void MapDepartments(RouteGroupBuilder api)
+    {
+        var departments = api.MapGroup("/departments")
+            .WithTags("Departments");
+
+        departments.MapGet("/", async (
+            IDepartmentService departmentService,
+            CancellationToken cancellationToken) =>
+        {
+            var data = await departmentService.GetDepartmentsAsync(cancellationToken);
+            return Results.Ok(ApiResponse<IReadOnlyCollection<DepartmentDto>>.SuccessResponse(data, "Departments loaded successfully."));
+        })
+        .WithName("GetDepartments")
+        .WithSummary("Get departments list.")
+        .RequireAuthorization(Policies.WorkspaceUser);
+
+        departments.MapPost("/", async (
+            CreateDepartmentRequest request,
+            IValidator<CreateDepartmentRequest> validator,
+            IDepartmentService departmentService,
+            CancellationToken cancellationToken) =>
+        {
+            await validator.ValidateAndThrowAsync(request, cancellationToken);
+            var data = await departmentService.CreateDepartmentAsync(request, cancellationToken);
+            return Results.Created($"/api/v1/departments/{data.Id}", ApiResponse<DepartmentDto>.SuccessResponse(data, "Department created successfully."));
+        })
+        .WithName("CreateDepartment")
+        .WithSummary("Create a new department.")
+        .RequireAuthorization(Policies.AdminOnly);
     }
 
     private static void MapNotifications(RouteGroupBuilder api)

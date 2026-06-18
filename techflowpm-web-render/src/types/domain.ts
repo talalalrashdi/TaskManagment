@@ -13,11 +13,31 @@ export type PagedResult<T> = {
   totalPages: number;
 };
 
+export type UserRole =
+  | "Admin"
+  | "Department Chair"
+  | "Chair Office"
+  | "Department Director"
+  | "Section Head"
+  | "Division Supervisor"
+  | "Division Member"
+  | "Project Manager"
+  | "Member"
+  | "Viewer";
+
+export type Department = {
+  id: number;
+  name: string;
+  type: "Software" | "Networks" | "Security" | "Maintenance";
+  color: string;
+  icon: string;
+};
+
 export type User = {
   id: number;
   name: string;
   email: string;
-  role: "Admin" | "Project Manager" | "Member" | "Viewer";
+  role: UserRole;
   avatar?: string | null;
   departmentId?: number | null;
   departmentName?: string | null;

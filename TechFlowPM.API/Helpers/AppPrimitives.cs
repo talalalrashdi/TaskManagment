@@ -21,6 +21,7 @@ public static class CacheKeys
     public const string DashboardStats = "dashboard:stats";
     public const string ExpiringLicenses = "licenses:expiring";
     public const string Users = "users:list";
+    public const string UsersVersion = "users:list:version";
 }
 
 public static class AuthDevices

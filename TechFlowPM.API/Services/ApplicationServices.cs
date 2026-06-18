@@ -81,6 +81,14 @@ public interface INotificationService
 public interface IUserService
 {
     Task<PagedResult<UserDto>> GetUsersAsync(UserQueryParameters query, CancellationToken cancellationToken = default);
+    Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken cancellationToken = default);
+    Task<UserDto> UpdateUserAsync(int id, UpdateUserRequest request, CancellationToken cancellationToken = default);
+}
+
+public interface IDepartmentService
+{
+    Task<IReadOnlyCollection<DepartmentDto>> GetDepartmentsAsync(CancellationToken cancellationToken = default);
+    Task<DepartmentDto> CreateDepartmentAsync(CreateDepartmentRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface IDeviceAdminService
@@ -351,6 +359,7 @@ public sealed class AuthService(
 
 public sealed class ProjectService(
     IProjectRepository projectRepository,
+    IUserRepository userRepository,
     IExecutiveUpdateRepository executiveUpdateRepository,
     INotificationRepository notificationRepository,
     IAuditLogRepository auditLogRepository,
@@ -361,7 +370,7 @@ public sealed class ProjectService(
 {
     public async Task<PagedResult<ProjectListItemDto>> GetProjectsAsync(ProjectQueryParameters query, CancellationToken cancellationToken = default)
     {
-        var scopedQuery = ApplyVisibility(query);
+        var scopedQuery = await ApplyVisibilityAsync(query, cancellationToken);
         var (items, totalCount) = await projectRepository.GetProjectsAsync(scopedQuery, cancellationToken);
         return new PagedResult<ProjectListItemDto>(items.Select(static item => item.ToListDto()).ToArray(), totalCount, scopedQuery.Page, scopedQuery.PageSize);
     }
@@ -513,7 +522,8 @@ public sealed class ProjectService(
 
     public async Task<IReadOnlyCollection<ProjectTimelineItemDto>> GetTimelineAsync(TimelineQueryParameters query, CancellationToken cancellationToken = default)
     {
-        var items = await projectRepository.GetTimelineAsync(query, cancellationToken);
+        var scopedQuery = await ApplyTimelineVisibilityAsync(query, cancellationToken);
+        var items = await projectRepository.GetTimelineAsync(scopedQuery, cancellationToken);
         return items.Select(static item => item.ToTimelineDto()).ToArray();
     }
 
@@ -637,17 +647,45 @@ public sealed class ProjectService(
         InvalidateProjectCaches();
     }
 
-    private ProjectQueryParameters ApplyVisibility(ProjectQueryParameters query)
+    private async Task<ProjectQueryParameters> ApplyVisibilityAsync(ProjectQueryParameters query, CancellationToken cancellationToken)
     {
         var userId = currentUserService.UserId;
         var role = currentUserService.Role;
+        var departmentId = await GetCurrentUserDepartmentIdAsync(userId, cancellationToken);
 
         return role switch
         {
             SystemRoles.ProjectManager when userId.HasValue => query with { ProjectManagerId = userId.Value },
             SystemRoles.Member when userId.HasValue => query with { MemberUserId = userId.Value },
+            SystemRoles.DepartmentDirector or SystemRoles.SectionHead or SystemRoles.DivisionSupervisor or SystemRoles.DivisionMember when departmentId.HasValue
+                => query with { DepartmentId = departmentId.Value },
             _ => query
         };
+    }
+
+    private async Task<TimelineQueryParameters> ApplyTimelineVisibilityAsync(TimelineQueryParameters query, CancellationToken cancellationToken)
+    {
+        var userId = currentUserService.UserId;
+        var role = currentUserService.Role;
+        var departmentId = await GetCurrentUserDepartmentIdAsync(userId, cancellationToken);
+
+        return role switch
+        {
+            SystemRoles.DepartmentDirector or SystemRoles.SectionHead or SystemRoles.DivisionSupervisor or SystemRoles.DivisionMember when departmentId.HasValue
+                => query with { DepartmentId = departmentId.Value },
+            _ => query
+        };
+    }
+
+    private async Task<int?> GetCurrentUserDepartmentIdAsync(int? userId, CancellationToken cancellationToken)
+    {
+        if (userId is not > 0)
+        {
+            return null;
+        }
+
+        var user = await userRepository.GetByIdAsync(userId.Value, cancellationToken);
+        return user?.DepartmentId;
     }
 
     private async Task EnsureProjectAccessAsync(int projectId, bool writeAccess, CancellationToken cancellationToken)
@@ -1218,12 +1256,16 @@ public sealed class NotificationService(
 
 public sealed class UserService(
     IUserRepository userRepository,
+    IDepartmentRepository departmentRepository,
+    IPasswordHasher passwordHasher,
+    IAuditLogRepository auditLogRepository,
     ICurrentUserService currentUserService,
     IMemoryCache memoryCache) : IUserService
 {
     public async Task<PagedResult<UserDto>> GetUsersAsync(UserQueryParameters query, CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"{CacheKeys.Users}:{query.Page}:{query.PageSize}:{query.Search}:{query.DepartmentId}:{query.Role}:{currentUserService.Role}";
+        var cacheVersion = memoryCache.Get<string>(CacheKeys.UsersVersion) ?? "base";
+        var cacheKey = $"{CacheKeys.Users}:{cacheVersion}:{query.Page}:{query.PageSize}:{query.Search}:{query.DepartmentId}:{query.Role}:{currentUserService.Role}";
         if (memoryCache.TryGetValue(cacheKey, out PagedResult<UserDto>? cachedUsers) && cachedUsers is not null)
         {
             return cachedUsers;
@@ -1233,6 +1275,166 @@ public sealed class UserService(
         var dto = new PagedResult<UserDto>(items.Select(static user => user.ToDto()).ToArray(), totalCount, query.Page, query.PageSize);
         memoryCache.Set(cacheKey, dto, TimeSpan.FromMinutes(5));
         return dto;
+    }
+
+    public async Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureAdminRights();
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var existingUser = await userRepository.GetByEmailAsync(normalizedEmail, cancellationToken);
+        if (existingUser is not null)
+        {
+            throw new AppException("A user with this email already exists.", StatusCodes.Status409Conflict);
+        }
+
+        var departmentId = await ResolveDepartmentIdAsync(request.DepartmentId, cancellationToken);
+        var createdId = await userRepository.CreateAsync(
+            new UserEntity
+            {
+                Name = request.Name.Trim(),
+                Email = normalizedEmail,
+                PasswordHash = passwordHasher.Hash(request.Password),
+                Role = request.Role.Trim(),
+                Avatar = string.IsNullOrWhiteSpace(request.Avatar) ? null : request.Avatar.Trim(),
+                DepartmentId = departmentId,
+                CreatedAt = DateTime.UtcNow
+            },
+            cancellationToken);
+
+        var user = await userRepository.GetByIdAsync(createdId, cancellationToken)
+            ?? throw new AppException("User could not be loaded after creation.", StatusCodes.Status500InternalServerError);
+
+        await WriteAuditAsync("UserCreated", createdId.ToString(), request, cancellationToken);
+        InvalidateCaches();
+        return user.ToDto();
+    }
+
+    public async Task<UserDto> UpdateUserAsync(int id, UpdateUserRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureAdminRights();
+        var existingUser = await userRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new AppException("User not found.", StatusCodes.Status404NotFound);
+
+        var departmentId = await ResolveDepartmentIdAsync(request.DepartmentId, cancellationToken);
+        var updated = await userRepository.UpdateAsync(
+            new UserEntity
+            {
+                Id = id,
+                Name = request.Name.Trim(),
+                Email = existingUser.Email,
+                PasswordHash = existingUser.PasswordHash,
+                Role = request.Role.Trim(),
+                Avatar = string.IsNullOrWhiteSpace(request.Avatar) ? null : request.Avatar.Trim(),
+                DepartmentId = departmentId,
+                CreatedAt = existingUser.CreatedAt
+            },
+            cancellationToken);
+
+        if (!updated)
+        {
+            throw new AppException("User not found.", StatusCodes.Status404NotFound);
+        }
+
+        var user = await userRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new AppException("User not found.", StatusCodes.Status404NotFound);
+
+        await WriteAuditAsync("UserUpdated", id.ToString(), request, cancellationToken);
+        InvalidateCaches();
+        return user.ToDto();
+    }
+
+    private async Task<int?> ResolveDepartmentIdAsync(int? departmentId, CancellationToken cancellationToken)
+    {
+        if (departmentId is not > 0)
+        {
+            return null;
+        }
+
+        var department = await departmentRepository.GetByIdAsync(departmentId.Value, cancellationToken);
+        if (department is null)
+        {
+            throw new AppException("Department not found.", StatusCodes.Status404NotFound);
+        }
+
+        return department.Id;
+    }
+
+    private void EnsureAdminRights()
+    {
+        if (currentUserService.Role != SystemRoles.Admin)
+        {
+            throw new AppException("Only system administrators can manage users.", StatusCodes.Status403Forbidden);
+        }
+    }
+
+    private void InvalidateCaches() => memoryCache.Set(CacheKeys.UsersVersion, Guid.NewGuid().ToString("N"));
+
+    private async Task WriteAuditAsync(string action, string entityId, object details, CancellationToken cancellationToken)
+    {
+        await auditLogRepository.CreateAsync(
+            new AuditLogEntity
+            {
+                UserId = currentUserService.UserId,
+                Action = action,
+                EntityType = "User",
+                EntityId = entityId,
+                DetailsJson = JsonSerializer.Serialize(details),
+                Ip = currentUserService.IpAddress,
+                CreatedAt = DateTime.UtcNow
+            },
+            cancellationToken);
+    }
+}
+
+public sealed class DepartmentService(
+    IDepartmentRepository departmentRepository,
+    IAuditLogRepository auditLogRepository,
+    ICurrentUserService currentUserService) : IDepartmentService
+{
+    public async Task<IReadOnlyCollection<DepartmentDto>> GetDepartmentsAsync(CancellationToken cancellationToken = default)
+    {
+        var departments = await departmentRepository.GetDepartmentsAsync(cancellationToken);
+        return departments.Select(static department => department.ToDto()).ToArray();
+    }
+
+    public async Task<DepartmentDto> CreateDepartmentAsync(CreateDepartmentRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureAdminRights();
+        var createdId = await departmentRepository.CreateAsync(
+            new DepartmentEntity
+            {
+                Name = request.Name.Trim(),
+                Type = request.Type.Trim(),
+                Color = request.Color.Trim(),
+                Icon = request.Icon.Trim()
+            },
+            cancellationToken);
+
+        var department = await departmentRepository.GetByIdAsync(createdId, cancellationToken)
+            ?? throw new AppException("Department could not be loaded after creation.", StatusCodes.Status500InternalServerError);
+
+        await auditLogRepository.CreateAsync(
+            new AuditLogEntity
+            {
+                UserId = currentUserService.UserId,
+                Action = "DepartmentCreated",
+                EntityType = "Department",
+                EntityId = createdId.ToString(),
+                DetailsJson = JsonSerializer.Serialize(request),
+                Ip = currentUserService.IpAddress,
+                CreatedAt = DateTime.UtcNow
+            },
+            cancellationToken);
+
+        return department.ToDto();
+    }
+
+    private void EnsureAdminRights()
+    {
+        if (currentUserService.Role != SystemRoles.Admin)
+        {
+            throw new AppException("Only system administrators can manage departments.", StatusCodes.Status403Forbidden);
+        }
     }
 }
 
@@ -1368,6 +1570,9 @@ internal static class ServiceMappings
 
     public static UserDto ToDto(this UserEntity entity)
         => new(entity.Id, NormalizeDisplayName(entity.Name, entity.Email) ?? entity.Name, entity.Email, entity.Role, entity.Avatar, entity.DepartmentId, entity.DepartmentName, entity.DepartmentType, entity.CreatedAt);
+
+    public static DepartmentDto ToDto(this DepartmentEntity entity)
+        => new(entity.Id, entity.Name, entity.Type, entity.Color, entity.Icon);
 
     public static ProjectMemberDto ToDto(this ProjectMemberEntity entity)
         => new(entity.Id, entity.ProjectId, entity.UserId, entity.RoleInProject, entity.JoinedAt, NormalizeDisplayName(entity.UserName, entity.UserEmail) ?? entity.UserName, entity.UserEmail, entity.UserAvatar);

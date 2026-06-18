@@ -93,6 +93,36 @@ public sealed class UserRepository(ISqlConnectionFactory connectionFactory) : IU
         return (items, totalCount);
     }
 
+    public async Task<int> CreateAsync(UserEntity user, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            INSERT INTO dbo.Users (name, email, password_hash, role, avatar, department_id)
+            VALUES (@Name, @Email, @PasswordHash, @Role, @Avatar, @DepartmentId);
+
+            SELECT CAST(SCOPE_IDENTITY() AS INT);
+            """;
+
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, user, cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> UpdateAsync(UserEntity user, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            UPDATE dbo.Users
+            SET
+                name = @Name,
+                role = @Role,
+                avatar = @Avatar,
+                department_id = @DepartmentId
+            WHERE id = @Id;
+            """;
+
+        using var connection = connectionFactory.CreateConnection();
+        var affectedRows = await connection.ExecuteAsync(new CommandDefinition(sql, user, cancellationToken: cancellationToken));
+        return affectedRows > 0;
+    }
+
     private static string BuildUserWhere(UserQueryParameters query, DynamicParameters parameters)
     {
         var conditions = new List<string>();
@@ -115,6 +145,56 @@ public sealed class UserRepository(ISqlConnectionFactory connectionFactory) : IU
         }
 
         return conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
+    }
+}
+
+public sealed class DepartmentRepository(ISqlConnectionFactory connectionFactory) : IDepartmentRepository
+{
+    public async Task<IReadOnlyCollection<DepartmentEntity>> GetDepartmentsAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT
+                d.id AS Id,
+                d.name AS Name,
+                d.type AS Type,
+                d.color AS Color,
+                d.icon AS Icon
+            FROM dbo.Departments d
+            ORDER BY d.name ASC;
+            """;
+
+        using var connection = connectionFactory.CreateConnection();
+        return (await connection.QueryAsync<DepartmentEntity>(new CommandDefinition(sql, cancellationToken: cancellationToken))).AsList();
+    }
+
+    public async Task<DepartmentEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT
+                d.id AS Id,
+                d.name AS Name,
+                d.type AS Type,
+                d.color AS Color,
+                d.icon AS Icon
+            FROM dbo.Departments d
+            WHERE d.id = @Id;
+            """;
+
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.QuerySingleOrDefaultAsync<DepartmentEntity>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+    }
+
+    public async Task<int> CreateAsync(DepartmentEntity department, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            INSERT INTO dbo.Departments (name, type, color, icon)
+            VALUES (@Name, @Type, @Color, @Icon);
+
+            SELECT CAST(SCOPE_IDENTITY() AS INT);
+            """;
+
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, department, cancellationToken: cancellationToken));
     }
 }
 
@@ -513,11 +593,19 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             return true;
         }
 
-        if (role == SystemRoles.Viewer)
+        if (SystemRoles.GlobalReadRoles.Contains(role))
         {
             return !writeAccess;
         }
 
+        const string departmentScopedSql = """
+            SELECT COUNT(1)
+            FROM dbo.Projects p
+            INNER JOIN dbo.Users u ON u.id = @UserId
+            WHERE p.id = @ProjectId
+              AND u.department_id IS NOT NULL
+              AND (p.responsible_department_id = u.department_id OR p.beneficiary_department_id = u.department_id);
+            """;
         const string managerSql = "SELECT COUNT(1) FROM dbo.Projects WHERE id = @ProjectId AND project_manager_id = @UserId;";
         const string memberSql = """
             SELECT COUNT(1)
@@ -526,6 +614,11 @@ public sealed class ProjectRepository(ISqlConnectionFactory connectionFactory) :
             """;
 
         using var connection = connectionFactory.CreateConnection();
+        if (!writeAccess && (SystemRoles.DepartmentScopedRoles.Contains(role) || role == SystemRoles.DivisionMember))
+        {
+            return await connection.ExecuteScalarAsync<int>(new CommandDefinition(departmentScopedSql, new { ProjectId = projectId, UserId = userId }, cancellationToken: cancellationToken)) > 0;
+        }
+
         if (role == SystemRoles.ProjectManager)
         {
             return await connection.ExecuteScalarAsync<int>(new CommandDefinition(managerSql, new { ProjectId = projectId, UserId = userId }, cancellationToken: cancellationToken)) > 0;

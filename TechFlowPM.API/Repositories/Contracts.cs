@@ -8,6 +8,15 @@ public interface IUserRepository
     Task<UserEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<UserEntity?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
     Task<(IReadOnlyCollection<UserEntity> Items, int TotalCount)> GetUsersAsync(UserQueryParameters query, CancellationToken cancellationToken = default);
+    Task<int> CreateAsync(UserEntity user, CancellationToken cancellationToken = default);
+    Task<bool> UpdateAsync(UserEntity user, CancellationToken cancellationToken = default);
+}
+
+public interface IDepartmentRepository
+{
+    Task<IReadOnlyCollection<DepartmentEntity>> GetDepartmentsAsync(CancellationToken cancellationToken = default);
+    Task<DepartmentEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<int> CreateAsync(DepartmentEntity department, CancellationToken cancellationToken = default);
 }
 
 public interface IProjectRepository

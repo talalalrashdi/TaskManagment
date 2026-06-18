@@ -197,6 +197,29 @@ export default function ProjectDetailsPage() {
     },
   });
 
+  const updateTaskAssigneeMutation = useMutation({
+    mutationFn: ({ task, userId }: { task: Task; userId: number | null }) =>
+      apiClient.put(`/tasks/${task.id}`, {
+        title: task.title,
+        description: task.description,
+        assignedToId: userId,
+        assignedUserIds: userId ? [userId] : [],
+        status: task.status,
+        priority: task.priority,
+        dueDate: task.dueDate || null,
+        estimatedHours: task.estimatedHours,
+        actualHours: task.actualHours,
+        orderIndex: task.orderIndex,
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-project-detail", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["director-project-detail", projectId] }),
+      ]);
+    },
+  });
+
   const addUpdateMutation = useMutation({
     mutationFn: () => apiClient.post(`/projects/${projectId}/updates`, updateForm),
     onSuccess: async () => {
@@ -481,8 +504,11 @@ export default function ProjectDetailsPage() {
             {tab === "tasks" ? (
               <TasksTab
                 tasks={tasks}
+                users={assignableUsers}
                 movingTaskId={patchTaskStatusMutation.variables?.taskId}
+                assigningTaskId={updateTaskAssigneeMutation.isPending ? updateTaskAssigneeMutation.variables?.task.id : undefined}
                 onMoveTask={(task, status) => patchTaskStatusMutation.mutate({ taskId: task.id, status })}
+                onAssignTask={(task, userId) => updateTaskAssigneeMutation.mutate({ task, userId })}
               />
             ) : null}
 
@@ -956,20 +982,29 @@ function TaskCreatePanel({
 
 function TasksTab({
   tasks,
+  users,
   movingTaskId,
+  assigningTaskId,
   onMoveTask,
+  onAssignTask,
 }: {
   tasks: Task[];
+  users: User[];
   movingTaskId?: number;
+  assigningTaskId?: number;
   onMoveTask: (task: Task, status: Task["status"]) => void;
+  onAssignTask: (task: Task, userId: number | null) => void;
 }) {
   return (
     <div className="space-y-6">
       <Panel className="overflow-hidden p-4">
         <KanbanBoard
           tasks={tasks}
+          users={users}
           movingTaskId={movingTaskId}
+          assigningTaskId={assigningTaskId}
           onMove={(task, status) => onMoveTask(task, status)}
+          onAssignTask={onAssignTask}
         />
       </Panel>
     </div>
@@ -1355,6 +1390,12 @@ function getInitials(name: string) {
 
 function translateRole(role: User["role"]) {
   if (role === "Admin") return "مدير النظام";
+  if (role === "Department Chair") return "رئيس الدائرة";
+  if (role === "Chair Office") return "مكتب الرئيس";
+  if (role === "Department Director") return "مدير الدائرة";
+  if (role === "Section Head") return "رئيس القسم";
+  if (role === "Division Supervisor") return "مشرف شعبة";
+  if (role === "Division Member") return "عضو داخل شعبة";
   if (role === "Project Manager") return "مدير مشروع";
   if (role === "Member") return "عضو";
   return "مشاهد";

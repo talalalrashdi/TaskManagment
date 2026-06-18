@@ -57,6 +57,8 @@ public sealed record DeviceQueryParameters : PagedQuery
     public bool? IsActive { get; init; }
 }
 
+public sealed record DepartmentQueryParameters : PagedQuery;
+
 public sealed record NotificationQueryParameters : PagedQuery
 {
     public string? Type { get; init; }
@@ -249,6 +251,26 @@ public sealed record AuthResponse(
     UserDto User,
     DateTime ExpiresAtUtc,
     DateTime RefreshExpiresAtUtc);
+
+public sealed record CreateUserRequest(
+    string Name,
+    string Email,
+    string Password,
+    string Role,
+    int? DepartmentId,
+    string? Avatar);
+
+public sealed record UpdateUserRequest(
+    string Name,
+    string Role,
+    int? DepartmentId,
+    string? Avatar);
+
+public sealed record CreateDepartmentRequest(
+    string Name,
+    string Type,
+    string Color,
+    string Icon);
 
 public sealed record CreateProjectRequest(
     string Title,
@@ -521,6 +543,41 @@ public sealed class RegisterDeviceRequestValidator : AbstractValidator<RegisterD
     }
 }
 
+public sealed class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+{
+    public CreateUserRequestValidator()
+    {
+        RuleFor(static request => request.Name).NotEmpty().MaximumLength(150);
+        RuleFor(static request => request.Email).NotEmpty().EmailAddress().MaximumLength(255);
+        RuleFor(static request => request.Password).NotEmpty().MinimumLength(6).MaximumLength(128);
+        RuleFor(static request => request.Role).Must(static role => SystemRoles.All.Contains(role)).WithMessage("Invalid user role.");
+        RuleFor(static request => request.DepartmentId).GreaterThan(0).When(static request => request.DepartmentId.HasValue);
+        RuleFor(static request => request.Avatar).MaximumLength(500).When(static request => !string.IsNullOrWhiteSpace(request.Avatar));
+    }
+}
+
+public sealed class UpdateUserRequestValidator : AbstractValidator<UpdateUserRequest>
+{
+    public UpdateUserRequestValidator()
+    {
+        RuleFor(static request => request.Name).NotEmpty().MaximumLength(150);
+        RuleFor(static request => request.Role).Must(static role => SystemRoles.All.Contains(role)).WithMessage("Invalid user role.");
+        RuleFor(static request => request.DepartmentId).GreaterThan(0).When(static request => request.DepartmentId.HasValue);
+        RuleFor(static request => request.Avatar).MaximumLength(500).When(static request => !string.IsNullOrWhiteSpace(request.Avatar));
+    }
+}
+
+public sealed class CreateDepartmentRequestValidator : AbstractValidator<CreateDepartmentRequest>
+{
+    public CreateDepartmentRequestValidator()
+    {
+        RuleFor(static request => request.Name).NotEmpty().MaximumLength(150);
+        RuleFor(static request => request.Type).Must(ValidationRuleSet.BeDepartmentType).WithMessage("Invalid department type.");
+        RuleFor(static request => request.Color).NotEmpty().MaximumLength(20);
+        RuleFor(static request => request.Icon).NotEmpty().MaximumLength(100);
+    }
+}
+
 public sealed class ToggleDeviceRequestValidator : AbstractValidator<ToggleDeviceRequest>
 {
     public ToggleDeviceRequestValidator()
@@ -530,6 +587,7 @@ public sealed class ToggleDeviceRequestValidator : AbstractValidator<ToggleDevic
 
 internal static class ValidationRuleSet
 {
+    public static bool BeDepartmentType(string? value) => !string.IsNullOrWhiteSpace(value) && DomainLookups.DepartmentTypes.Contains(value, StringComparer.OrdinalIgnoreCase);
     public static bool BeProjectType(string? value) => !string.IsNullOrWhiteSpace(value) && DomainLookups.ProjectTypes.Contains(value, StringComparer.OrdinalIgnoreCase);
     public static bool BeProjectStatus(string? value) => !string.IsNullOrWhiteSpace(value) && DomainLookups.ProjectStatuses.Contains(value, StringComparer.OrdinalIgnoreCase);
     public static bool BePriority(string? value) => !string.IsNullOrWhiteSpace(value) && DomainLookups.Priorities.Contains(value, StringComparer.OrdinalIgnoreCase);

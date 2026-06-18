@@ -3,11 +3,33 @@ namespace TechFlowPM.API.Models;
 public static class SystemRoles
 {
     public const string Admin = "Admin";
+    public const string DepartmentChair = "Department Chair";
+    public const string ChairOffice = "Chair Office";
+    public const string DepartmentDirector = "Department Director";
+    public const string SectionHead = "Section Head";
+    public const string DivisionSupervisor = "Division Supervisor";
+    public const string DivisionMember = "Division Member";
     public const string ProjectManager = "Project Manager";
     public const string Member = "Member";
     public const string Viewer = "Viewer";
 
-    public static readonly string[] All = [Admin, ProjectManager, Member, Viewer];
+    public static readonly string[] All =
+    [
+        Admin,
+        DepartmentChair,
+        ChairOffice,
+        DepartmentDirector,
+        SectionHead,
+        DivisionSupervisor,
+        DivisionMember,
+        ProjectManager,
+        Member,
+        Viewer
+    ];
+
+    public static readonly string[] GlobalReadRoles = [Admin, DepartmentChair, ChairOffice, Viewer];
+    public static readonly string[] DepartmentScopedRoles = [DepartmentDirector, SectionHead, DivisionSupervisor];
+    public static readonly string[] MemberScopedRoles = [DivisionMember, Member];
 }
 
 public static class DomainLookups

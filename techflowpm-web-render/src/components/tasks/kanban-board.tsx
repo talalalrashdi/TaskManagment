@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, Clock3, GripVertical, User2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { AlertTriangle, Check, ChevronDown, Clock3, GripVertical, LoaderCircle, User2 } from "lucide-react";
 import { Badge, Card } from "@/components/ui/primitives";
 import { cn, formatDate, getStatusTone } from "@/lib/utils";
-import type { Task, TaskAssignee } from "@/types/domain";
+import type { Task, TaskAssignee, User } from "@/types/domain";
 
 const columns: Task["status"][] = ["Todo", "InProgress", "Review", "Done", "Blocked"];
 
@@ -25,11 +25,14 @@ const priorityLabels: Record<Task["priority"], string> = {
 
 type Props = {
   tasks: Task[];
+  users: User[];
   movingTaskId?: number | null;
+  assigningTaskId?: number | null;
   onMove: (task: Task, status: Task["status"]) => void;
+  onAssignTask?: (task: Task, userId: number | null) => void;
 };
 
-export function KanbanBoard({ tasks, movingTaskId, onMove }: Props) {
+export function KanbanBoard({ tasks, users, movingTaskId, assigningTaskId, onMove, onAssignTask }: Props) {
   const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Task["status"] | null>(null);
 
@@ -136,7 +139,12 @@ export function KanbanBoard({ tasks, movingTaskId, onMove }: Props) {
                 </div>
 
                 <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                  <TaskAssigneeList task={task} />
+                  <TaskAssigneeList
+                    task={task}
+                    users={users}
+                    isAssigning={assigningTaskId === task.id}
+                    onAssignTask={onAssignTask}
+                  />
                   {task.status === "Blocked" ? (
                     <span className="inline-flex items-center gap-1 text-[var(--danger)]">
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -153,59 +161,156 @@ export function KanbanBoard({ tasks, movingTaskId, onMove }: Props) {
   );
 }
 
-function TaskAssigneeList({ task }: { task: Task }) {
+function TaskAssigneeList({
+  task,
+  users,
+  isAssigning = false,
+  onAssignTask,
+}: {
+  task: Task;
+  users: User[];
+  isAssigning?: boolean;
+  onAssignTask?: (task: Task, userId: number | null) => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const assignees = getTaskAssignees(task);
+  const selectedUserId = task.assignedToId ?? assignees[0]?.userId ?? null;
 
-  if (assignees.length === 0) {
-    return (
-      <span className="inline-flex items-center gap-1">
-        <User2 className="h-3.5 w-3.5" />
-        غير معين
-      </span>
-    );
-  }
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
 
-  if (assignees.length === 1) {
-    return (
-      <div className="flex min-w-0 items-center gap-2">
-        <AssigneeAvatar assignee={assignees[0]} />
-        <span className="truncate">{assignees[0].userName}</span>
-      </div>
-    );
-  }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen]);
+
+  const handleTriggerToggle = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    setIsOpen((current) => !current);
+  };
+
+  const handleAssignUser = (userId: number | null) => {
+    if (isAssigning || selectedUserId === userId) {
+      setIsOpen(false);
+      return;
+    }
+
+    onAssignTask?.(task, userId);
+    setIsOpen(false);
+  };
+
+  const canEditAssignee = Boolean(onAssignTask) && users.length > 0;
 
   const visibleAssignees = assignees.slice(0, 4);
 
   return (
-    <div className="relative flex min-w-0 items-center gap-2">
-      <div className="flex items-center">
-        {visibleAssignees.map((assignee) => (
-          <AssigneeAvatar key={assignee.userId} assignee={assignee} stacked />
-        ))}
-      </div>
+    <div ref={containerRef} className="relative min-w-0">
       <button
         type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setIsOpen((current) => !current);
-        }}
+        onClick={handleTriggerToggle}
+        onMouseDown={(event) => event.stopPropagation()}
         onDragStart={(event) => event.preventDefault()}
-        className="grid h-8 min-w-8 place-items-center rounded-full border-2 border-white bg-[#0d7573] px-2 text-[11px] font-bold text-white shadow-[0_12px_24px_-18px_rgba(13,117,115,0.65)]"
+        className={cn(
+          "flex min-w-0 max-w-full items-center gap-2 rounded-full px-1.5 py-1 transition",
+          canEditAssignee ? "hover:bg-white/70" : "cursor-default",
+        )}
+        disabled={!canEditAssignee}
       >
-        +{assignees.length}
+        {assignees.length === 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <User2 className="h-3.5 w-3.5" />
+            غير معين
+          </span>
+        ) : assignees.length === 1 ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <AssigneeAvatar assignee={assignees[0]} />
+            <span className="truncate">{assignees[0].userName}</span>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex items-center">
+              {visibleAssignees.map((assignee) => (
+                <AssigneeAvatar key={assignee.userId} assignee={assignee} stacked />
+              ))}
+            </div>
+            <span className="font-semibold text-[#0d7573]">+{assignees.length}</span>
+          </div>
+        )}
+        {canEditAssignee ? (
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--surface-muted)] text-[#7c8f91]">
+            {isAssigning ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </span>
+        ) : null}
       </button>
 
-      {isOpen ? (
-        <div className="absolute bottom-[calc(100%+0.5rem)] right-0 z-[90] w-64 rounded-[20px] border border-[#dce7e8] bg-white p-2 shadow-[0_24px_48px_-32px_rgba(12,54,58,0.35)]">
-          <div className="mb-2 px-2 text-[12px] font-semibold text-[#66787d]">المكلفون بالمهمة</div>
-          <div className="space-y-1">
-            {assignees.map((assignee) => (
-              <div key={assignee.userId} className="flex items-center gap-3 rounded-2xl px-3 py-2 text-[#526268]">
-                <AssigneeAvatar assignee={assignee} />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{assignee.userName}</span>
-              </div>
-            ))}
+      {isOpen && canEditAssignee ? (
+        <div
+          onMouseDown={(event) => event.stopPropagation()}
+          className="absolute bottom-[calc(100%+0.5rem)] right-0 z-[90] w-72 rounded-[20px] border border-[#dce7e8] bg-white p-2 shadow-[0_24px_48px_-32px_rgba(12,54,58,0.35)]"
+        >
+          <div className="mb-2 px-2 text-[12px] font-semibold text-[#66787d]">تغيير المكلف بالمهمة</div>
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => handleAssignUser(null)}
+              onMouseDown={(event) => event.stopPropagation()}
+              onDragStart={(event) => event.preventDefault()}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-right text-[13px] font-semibold transition",
+                selectedUserId === null ? "bg-[#edf8f8] text-[#0d7573]" : "text-[#526268] hover:bg-[#f5fafb]",
+              )}
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[#dce3e6] text-[#173036]">
+                <User2 className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">غير معين</span>
+              <span
+                className={cn(
+                  "grid h-5 w-5 place-items-center rounded-full border text-[11px]",
+                  selectedUserId === null ? "border-[#0d7573] bg-[#0d7573] text-white" : "border-[#cfdcde] text-transparent",
+                )}
+              >
+                <Check className="h-3 w-3" />
+              </span>
+            </button>
+            {users.map((user) => {
+              const selected = user.id === selectedUserId;
+
+              return (
+                <button
+                  key={user.id}
+                  type="button"
+                  onClick={() => handleAssignUser(user.id)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onDragStart={(event) => event.preventDefault()}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-right text-[13px] font-semibold transition",
+                    selected ? "bg-[#edf8f8] text-[#0d7573]" : "text-[#526268] hover:bg-[#f5fafb]",
+                  )}
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-[#dce3e6] text-[10px] font-bold text-[#173036]">
+                    {getInitials(user.name)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{user.name}</span>
+                  <span
+                    className={cn(
+                      "grid h-5 w-5 place-items-center rounded-full border text-[11px]",
+                      selected ? "border-[#0d7573] bg-[#0d7573] text-white" : "border-[#cfdcde] text-transparent",
+                    )}
+                  >
+                    <Check className="h-3 w-3" />
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       ) : null}
