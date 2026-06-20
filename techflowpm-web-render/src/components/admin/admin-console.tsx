@@ -317,7 +317,10 @@ export function AdminConsole() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card className={cn(adminPanelClassName, "p-6")} style={adminPanelBackgroundStyle}>
+        <Card
+          className={cn(adminPanelClassName, "relative overflow-visible p-6", isMemberNamePickerOpen && "z-40")}
+          style={adminPanelBackgroundStyle}
+        >
           <div className="flex items-center gap-3">
             <div className="grid h-12 w-12 place-items-center rounded-[18px] border border-[#2de2c7]/15 bg-[#071210] text-[#95ffea]">
               <UserPlus className="h-5 w-5" />
@@ -329,7 +332,7 @@ export function AdminConsole() {
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <div className="relative">
+            <div className="relative z-50">
               <Input
                 placeholder="ابحث عن اسم المستخدم"
                 className={adminFieldClassName}
@@ -345,7 +348,7 @@ export function AdminConsole() {
                 }}
               />
               {isMemberNamePickerOpen ? (
-                <div className="absolute z-20 mt-2 max-h-56 w-full overflow-y-auto rounded-[22px] border border-white/10 bg-[#090909] p-2 shadow-[0_26px_54px_-34px_rgba(0,0,0,0.92)]">
+                <div className="absolute z-[120] mt-2 max-h-56 w-full overflow-y-auto rounded-[22px] border border-white/10 bg-[#090909] p-2 shadow-[0_26px_54px_-34px_rgba(0,0,0,0.92)]">
                   {filteredMemberNameOptions.length > 0 ? (
                     filteredMemberNameOptions.map((name) => (
                       <button

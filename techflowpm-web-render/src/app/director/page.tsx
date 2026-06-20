@@ -562,11 +562,10 @@ function DirectorCalendarAside({
 }) {
   return (
     <aside
-      dir="rtl"
-      className="order-first relative m-2 h-[calc(100vh-1rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-8 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] sm:px-7 lg:px-8"
+      className="relative m-2 h-[calc(100vh-1rem)] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-[34px] border border-[#eff3f4] bg-white px-6 pb-8 shadow-[0_28px_70px_-52px_rgba(12,54,58,0.35)] transition-[max-width,padding] duration-300 ease-out sm:px-7 lg:px-8"
     >
       <div className="sticky top-0 z-30 -mx-6 bg-transparent px-6 pb-0 pt-7 shadow-none backdrop-blur-0 transition-all duration-300 sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8">
-        <div className="rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
+        <div dir="ltr" className="rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
           <div className="grid grid-cols-3 gap-1.5">
             {directorAsideTabs.map((tab) => {
               const Icon = tab.icon;
@@ -594,8 +593,8 @@ function DirectorCalendarAside({
 
       {activeView === "calendar" ? (
         <>
-          <div className="mt-8 flex items-center justify-between">
-            <div>
+          <div className="mt-8 flex flex-row-reverse items-center justify-between">
+            <div className="text-right">
               <h2 className="text-[26px] font-semibold tracking-[-0.05em] text-[#1d2747] lg:text-[28px]">
                 {calendarMonthHeading.month} {calendarMonthHeading.year}
               </h2>
@@ -611,7 +610,7 @@ function DirectorCalendarAside({
                 className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-[#f4f7f8] hover:text-[#11272c]"
                 aria-label="الشهر السابق"
               >
-                <ChevronLeft className="h-7 w-7" />
+                <ChevronRight className="h-7 w-7" />
               </button>
               <button
                 type="button"
@@ -619,7 +618,7 @@ function DirectorCalendarAside({
                 className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-[#f4f7f8] hover:text-[#11272c]"
                 aria-label="الشهر التالي"
               >
-                <ChevronRight className="h-7 w-7" />
+                <ChevronLeft className="h-7 w-7" />
               </button>
             </div>
           </div>

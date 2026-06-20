@@ -1198,40 +1198,38 @@ export default function DashboardPage() {
               isAsideCollapsed ? "-mx-3 px-3" : "-mx-6 px-6 sm:-mx-7 sm:px-7 lg:-mx-8 lg:px-8",
             )}
           >
-            <div className={cn("flex items-start gap-2", isAsideCollapsed && "flex-col items-center")}>
-              {!isAsideCollapsed ? (
-                <div className="min-w-0 flex-1 rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {asideTabs.map((tab) => {
-                      const Icon = tab.icon;
+            {!isAsideCollapsed ? (
+              <div dir="ltr" className="rounded-[22px] bg-[#f4f7f8]/90 p-1.5 backdrop-blur">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {asideTabs.map((tab) => {
+                    const Icon = tab.icon;
 
-                      return (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          onClick={() => setAsideView(tab.key)}
-                          className={cn(
-                            "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
-                            asideView === tab.key
-                              ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
-                              : "font-medium text-[#7c8f91]",
-                          )}
-                        >
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <span className="hidden whitespace-nowrap md:inline">{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setAsideView(tab.key)}
+                        className={cn(
+                          "flex min-w-0 items-center justify-center gap-1.5 rounded-[18px] px-2 py-2.5 text-[11px] leading-none transition-all md:px-3 md:text-[12px]",
+                          asideView === tab.key
+                            ? "bg-white font-bold text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.45)]"
+                            : "font-medium text-[#7c8f91]",
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="hidden whitespace-nowrap md:inline">{tab.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : null}
-
-              {isAsideCollapsed ? (
+              </div>
+            ) : (
+              <div className="flex justify-center">
                 <div className="grid h-12 w-12 place-items-center rounded-[20px] bg-[#f4f7f8] text-[#0d7573] shadow-[0_20px_35px_-28px_rgba(10,76,74,0.18)]">
                   <ActiveAsideIcon className="h-5 w-5" />
                 </div>
-              ) : null}
-            </div>
+              </div>
+            )}
           </div>
 
           {!isAsideCollapsed && asideView === "calendar" ? (
